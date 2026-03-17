@@ -1,0 +1,44 @@
+{
+  "name": "terminal-wrapper",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "postinstall": "node scripts/patch-node-pty.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.77",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/xterm": "^5.5.0",
+    "node-pty": "^1.0.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zustand": "^5.0.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.24.0",
+    "@tailwindcss/postcss": "^4.1.3",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@typescript-eslint/eslint-plugin": "^8.30.0",
+    "@typescript-eslint/parser": "^8.30.0",
+    "@vitejs/plugin-react": "^4.4.1",
+    "electron": "^35.1.2",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^3.1.0",
+    "eslint": "^9.24.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "postcss": "^8.5.3",
+    "prettier": "^3.5.3",
+    "tailwindcss": "^4.1.3",
+    "typescript": "^5.8.3"
+  }
+}
