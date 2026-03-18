@@ -1,4 +1,6 @@
 import { WebContentsView, shell } from 'electron'
+import { matchShortcut } from '../shortcuts'
+import { getRendererWebContents } from '../window-manager'
 
 interface BrowserInstance {
   view: WebContentsView
@@ -25,6 +27,18 @@ export function createBrowserView(projectId: string, url?: string): WebContentsV
   if (url) {
     view.webContents.loadURL(url)
   }
+
+  // Forward app shortcuts from embedded browser panels to the renderer
+  view.webContents.on('before-input-event', (event, input) => {
+    const channel = matchShortcut(input)
+    if (channel) {
+      event.preventDefault()
+      const rendererWc = getRendererWebContents()
+      if (rendererWc && !rendererWc.isDestroyed()) {
+        rendererWc.send(channel)
+      }
+    }
+  })
 
   instances.set(projectId, { view, projectId })
   return view
