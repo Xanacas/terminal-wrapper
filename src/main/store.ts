@@ -1,6 +1,11 @@
 import { app } from 'electron'
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
+import { homedir } from 'os'
+
+const isWin = process.platform === 'win32'
+const defaultCwd = isWin ? 'C:\\' : homedir()
+const defaultShellId = isWin ? 'pwsh' : 'zsh'
 
 // ---- Panel tree types (mirrored from renderer) ----
 
@@ -115,9 +120,9 @@ function migrateProjects(raw: unknown[]): Project[] {
       return {
         id: p.id as string,
         name: p.name as string,
-        defaultCwd: (p.cwd as string) ?? (p.defaultCwd as string) ?? 'C:\\',
+        defaultCwd: (p.cwd as string) ?? (p.defaultCwd as string) ?? defaultCwd,
         defaultUrl: (p.defaultUrl as string) ?? 'https://google.com',
-        defaultShellId: (p.defaultShellId as string) ?? (p.shellId as string) ?? 'pwsh',
+        defaultShellId: (p.defaultShellId as string) ?? (p.shellId as string) ?? defaultShellId,
         threads: [
           {
             id: threadId,
@@ -132,7 +137,7 @@ function migrateProjects(raw: unknown[]): Project[] {
     }
 
     // Very old format (layout/splitRatio)
-    const shellId = (p.shellId as string) ?? 'pwsh'
+    const shellId = (p.shellId as string) ?? defaultShellId
     const url = (p.url as string) ?? 'https://google.com'
     const layout = (p.layout as string) ?? 'terminal'
     const splitRatio = (p.splitRatio as number) ?? 0.5
@@ -158,7 +163,7 @@ function migrateProjects(raw: unknown[]): Project[] {
     return {
       id: p.id as string,
       name: p.name as string,
-      defaultCwd: (p.cwd as string) ?? 'C:\\',
+      defaultCwd: (p.cwd as string) ?? defaultCwd,
       defaultUrl: url,
       defaultShellId: shellId,
       threads: [
