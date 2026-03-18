@@ -11,7 +11,7 @@ export function ProjectSettings() {
   const projectId = useUIStore((s) => s.projectSettingsId)
   const close = useUIStore((s) => s.closeProjectSettings)
   const projects = useAppStore((s) => s.projects)
-  const { updateProject } = useProjects()
+  const { updateProject, addThread } = useProjects()
 
   const project = projects.find((p) => p.id === projectId)
 
@@ -47,11 +47,25 @@ export function ProjectSettings() {
     if (folder) setClaudeCwd(folder)
   }, [])
 
+  // When closing settings on a project with no threads (newly created),
+  // create an initial empty thread so the user gets the panel chooser.
+  const ensureThread = useCallback(() => {
+    if (!projectId || !project) return
+    if (project.threads.length === 0) {
+      addThread(projectId, 'Thread 1')
+    }
+  }, [projectId, project, addThread])
+
+  const handleCancel = useCallback(() => {
+    ensureThread()
+    close()
+  }, [ensureThread, close])
+
   const handleSave = useCallback(() => {
     if (!projectId) return
     updateProject(projectId, {
       name: name.trim() || 'Untitled',
-      defaultCwd: cwd.trim() || 'C:\\',
+      defaultCwd: cwd.trim() || '~',
       defaultUrl: url.trim() || 'https://google.com',
       urlRouting,
       claudeConfig: {
@@ -61,22 +75,25 @@ export function ProjectSettings() {
         effort: claudeEffort,
       }
     })
+    ensureThread()
     close()
-  }, [projectId, name, cwd, url, urlRouting, claudeCwd, claudeModel, claudePermMode, claudeEffort, updateProject, close])
+  }, [projectId, name, cwd, url, urlRouting, claudeCwd, claudeModel, claudePermMode, claudeEffort, updateProject, ensureThread, close])
+
+  const isNewProject = project?.threads.length === 0
 
   if (!projectId || !project) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={close}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={handleCancel}>
       <div
         className="w-full max-w-md max-h-[85vh] flex flex-col rounded-2xl border border-white/[0.04] bg-surface shadow-[0_24px_48px_-12px_rgba(0,0,0,0.5)]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5">
-          <h2 className="text-[15px] font-semibold text-text tracking-tight">Project Settings</h2>
+          <h2 className="text-[15px] font-semibold text-text tracking-tight">{isNewProject ? 'Add New Project' : 'Project Settings'}</h2>
           <button
-            onClick={close}
+            onClick={handleCancel}
             className="flex h-7 w-7 items-center justify-center rounded-lg text-text-dim transition-all duration-150 hover:bg-bg-hover hover:text-text-secondary"
           >
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
@@ -221,7 +238,7 @@ export function ProjectSettings() {
         <div className="mx-5 border-t border-white/[0.06]" />
         <div className="flex justify-end gap-2.5 px-6 py-4">
           <button
-            onClick={close}
+            onClick={handleCancel}
             className="rounded-lg border border-border px-4 py-1.5 text-[11px] font-medium text-text-muted transition-all duration-150 hover:bg-bg-hover hover:text-text-secondary hover:border-border-bright"
           >
             Cancel

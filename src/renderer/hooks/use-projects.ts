@@ -55,11 +55,8 @@ export function useProjects() {
     const shells = await api.listShells()
     const defaultShell = shells[0]
     const cwd = await api.getHomeDir()
-    const shellId = defaultShell?.id ?? 'cmd'
+    const shellId = defaultShell?.id ?? ''
 
-    const panel = createLeafPanel('terminal', { shellId })
-    const tab = createTab('Terminal', panel)
-    const threadId = generateId()
     const projectId = generateId()
 
     await storeAddProject({
@@ -68,17 +65,14 @@ export function useProjects() {
       defaultCwd: cwd,
       defaultUrl: 'https://google.com',
       defaultShellId: shellId,
-      threads: [
-        {
-          id: threadId,
-          name: 'Thread 1',
-          tabs: [tab],
-          activeTabId: tab.id
-        }
-      ],
-      activeThreadId: threadId,
+      threads: [],
+      activeThreadId: '',
       collapsed: false
     })
+
+    // Open settings immediately so the user can configure the project
+    useUIStore.getState().openProjectSettings(projectId)
+
     return projectId
   }, [projects.length, storeAddProject])
 
@@ -155,8 +149,8 @@ export function useProjects() {
       const project = getProject(projectId)
       if (!project) return
 
-      const panel = createLeafPanel('terminal', { shellId: project.defaultShellId })
-      const tab = createTab('Terminal', panel)
+      const panel = createLeafPanel('empty')
+      const tab = createTab('New Tab', panel)
       const threadId = generateId()
       const thread: Thread = {
         id: threadId,
@@ -187,7 +181,17 @@ export function useProjects() {
 
       const remaining = project.threads.filter((t) => t.id !== threadId)
       if (remaining.length === 0) {
-        await storeRemoveProject(projectId)
+        // Create a fresh default thread instead of deleting the project
+        const panel = createLeafPanel('empty')
+        const tab = createTab('New Tab', panel)
+        const newThreadId = generateId()
+        const newThread: Thread = {
+          id: newThreadId,
+          name: 'Thread 1',
+          tabs: [tab],
+          activeTabId: tab.id
+        }
+        await storeUpdateProject(projectId, { threads: [newThread], activeThreadId: newThreadId })
         return
       }
 
