@@ -22,6 +22,8 @@
   --color-danger-hover: #ef4444;
   --color-success: #34d399;
   --color-warning: #f59e0b;
+  --color-info: #60a5fa;
+  --color-purple: #a78bfa;
 }
 
 @layer base {
@@ -85,4 +87,9 @@
     -webkit-backdrop-filter: blur(16px);
     background: rgba(15, 15, 18, 0.8);
   }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }

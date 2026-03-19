@@ -2,6 +2,33 @@ import { create } from 'zustand'
 
 type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' | 'dontAsk'
 type EffortLevel = 'low' | 'medium' | 'high' | 'max'
+type ClaudeStatus = 'idle' | 'running' | 'planning' | 'action-needed' | 'waiting' | 'done' | 'planned'
+
+const STATUS_PRIORITY: Record<ClaudeStatus, number> = {
+  'action-needed': 0,
+  'planned': 1,
+  'waiting': 2,
+  'done': 3,
+  'running': 4,
+  'planning': 5,
+  'idle': 6,
+}
+
+export function getHighestPriorityStatus(statuses: ClaudeStatus[]): ClaudeStatus | null {
+  const nonIdle = statuses.filter((s) => s !== 'idle')
+  if (nonIdle.length === 0) return null
+  return nonIdle.reduce((best, s) => (STATUS_PRIORITY[s] < STATUS_PRIORITY[best] ? s : best))
+}
+
+export const STATUS_CONFIG: Record<ClaudeStatus, { label: string; color: string } | null> = {
+  'action-needed': { label: 'Action needed', color: 'var(--color-warning)' },
+  'planned': { label: 'Planned', color: 'var(--color-accent)' },
+  'waiting': { label: 'Waiting', color: 'var(--color-warning)' },
+  'done': { label: 'Done', color: 'var(--color-success)' },
+  'running': { label: 'Running', color: 'var(--color-info)' },
+  'planning': { label: 'Planning', color: 'var(--color-purple)' },
+  'idle': null,
+}
 
 interface ClaudePanelConfig {
   cwd: string
@@ -45,6 +72,7 @@ interface ClaudePanelState {
   settingsOpen: boolean
   historyOpen: boolean
   pendingCwdChange: string | null
+  status: ClaudeStatus
 }
 
 const defaultConfig: ClaudePanelConfig = {
@@ -71,6 +99,7 @@ const defaultPanelState: ClaudePanelState = {
   settingsOpen: false,
   historyOpen: false,
   pendingCwdChange: null,
+  status: 'idle' as ClaudeStatus,
 }
 
 interface ClaudeStore {
@@ -89,6 +118,7 @@ interface ClaudeStore {
   setHistoryOpen: (panelId: string, open: boolean) => void
   loadSessionHistory: (panelId: string, messages: ClaudeMessage[]) => void
   clearSession: (panelId: string) => void
+  setStatus: (panelId: string, status: ClaudeStatus) => void
   setPendingCwdChange: (panelId: string, cwd: string | null) => void
   removePanel: (panelId: string) => void
 }
@@ -231,8 +261,13 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
       settingsOpen: false,
       historyOpen: false,
       pendingCwdChange: null,
+      status: 'idle' as ClaudeStatus,
       config: { ...state.config },
     }))
+  },
+
+  setStatus: (panelId, status) => {
+    updatePanel(set, panelId, () => ({ status }))
   },
 
   setPendingCwdChange: (panelId, cwd) => {
@@ -248,4 +283,4 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
   },
 }))
 
-export type { ClaudeMessage, ClaudePanelState, ClaudePanelConfig, PermissionMode, EffortLevel }
+export type { ClaudeMessage, ClaudePanelState, ClaudePanelConfig, PermissionMode, EffortLevel, ClaudeStatus }

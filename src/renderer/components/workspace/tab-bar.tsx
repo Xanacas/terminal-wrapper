@@ -1,5 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { Tab, PanelType } from '~/lib/panel-utils'
+import { collectLeafPanels } from '~/lib/panel-utils'
+import { useClaudeStore, getHighestPriorityStatus } from '~/stores/claude-store'
+import type { ClaudeStatus } from '~/stores/claude-store'
+import { ClaudeStatusBadge } from '~/components/claude/claude-status-badge'
 
 type Placement = 'new-tab' | 'split-right' | 'split-down'
 
@@ -87,6 +91,17 @@ const PLACEMENTS: Array<{ placement: Placement; label: string; icon: React.React
     ),
   },
 ]
+
+function TabItemStatus({ tab }: { tab: Tab }) {
+  const panels = useClaudeStore((s) => s.panels)
+  const leaves = collectLeafPanels(tab.panel)
+  const claudeLeaves = leaves.filter((l) => l.panelType === 'claude')
+  if (claudeLeaves.length === 0) return null
+  const statuses = claudeLeaves.map((l) => panels.get(l.id)?.status ?? 'idle' as ClaudeStatus)
+  const status = getHighestPriorityStatus(statuses)
+  if (!status) return null
+  return <ClaudeStatusBadge status={status} compact />
+}
 
 export function TabBar({ tabs, activeTabId, onSwitch, onClose, onRename, onAdd }: TabBarProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -176,7 +191,10 @@ export function TabBar({ tabs, activeTabId, onSwitch, onClose, onRename, onAdd }
                     className="w-[80px] rounded-[3px] bg-bg-tertiary px-1.5 text-[12px] text-text outline-none ring-1 ring-accent"
                   />
                 ) : (
-                  <span className="max-w-[150px] truncate">{tab.name}</span>
+                  <>
+                    <span className="max-w-[150px] truncate">{tab.name}</span>
+                    <TabItemStatus tab={tab} />
+                  </>
                 )}
               </button>
               {tabs.length > 1 && (

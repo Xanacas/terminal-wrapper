@@ -67,33 +67,50 @@ export function useClaude(panelId: string, cwd: string) {
             })
           }
           a.setStreaming(panelId, false)
+          // When Claude finishes a text response and it's the user's turn:
+          // plan mode → "action needed" (user needs to decide next steps)
+          // normal mode → "waiting" (Claude expects user feedback)
+          const panelForText = a.getPanel(panelId)
+          a.setStatus(panelId, panelForText.config.permissionMode === 'plan' ? 'action-needed' : 'waiting')
           break
         }
-        case 'stream-delta':
+        case 'stream-delta': {
           hasStreamDeltasRef.current = true
           a.setStreaming(panelId, true)
           a.appendStreamDelta(panelId, m.text as string)
+          const panel = a.getPanel(panelId)
+          a.setStatus(panelId, panel.config.permissionMode === 'plan' ? 'planning' : 'running')
           break
+        }
         case 'stream-end':
           a.endStream(panelId, m.fullText as string)
           a.setStreaming(panelId, false)
           hasStreamDeltasRef.current = false
           break
-        case 'tool-use':
+        case 'tool-use': {
           if (hasStreamDeltasRef.current) {
             a.endStream(panelId, '')
             hasStreamDeltasRef.current = false
           }
+          const toolName = m.toolName as string
           a.addMessage(panelId, {
             id: globalThis.crypto.randomUUID(),
             type: 'tool-use',
             content: '',
             toolUseId: m.toolUseId as string,
-            toolName: m.toolName as string,
+            toolName,
             toolInput: m.input,
             ts: m.ts as number,
           })
+          // AskUserQuestion means Claude is asking the user something
+          if (toolName === 'AskUserQuestion') {
+            a.setStatus(panelId, 'action-needed')
+          } else {
+            const panelForTool = a.getPanel(panelId)
+            a.setStatus(panelId, panelForTool.config.permissionMode === 'plan' ? 'planning' : 'running')
+          }
           break
+        }
         case 'tool-result':
           a.addMessage(panelId, {
             id: globalThis.crypto.randomUUID(),
@@ -121,12 +138,14 @@ export function useClaude(panelId: string, cwd: string) {
     const removePermission = api.onClaudePermissionRequest((id, msg) => {
       if (id !== panelId) return
       const m = msg as Record<string, unknown>
-      actions().addPermissionRequest(panelId, {
+      const a = actions()
+      a.addPermissionRequest(panelId, {
         toolUseId: m.toolUseId as string,
         toolName: m.toolName as string,
         input: m.input,
         title: m.title as string | undefined,
       })
+      a.setStatus(panelId, 'action-needed')
     })
 
     const removeEnded = api.onClaudeSessionEnded((id, msg) => {
@@ -147,6 +166,14 @@ export function useClaude(panelId: string, cwd: string) {
           content: `Error: ${m.error}`,
           ts: m.ts as number,
         })
+      }
+
+      // Determine final status based on mode and reason
+      const panel = a.getPanel(panelId)
+      if (m.reason === 'completed' && panel.config.permissionMode === 'plan') {
+        a.setStatus(panelId, 'planned')
+      } else {
+        a.setStatus(panelId, 'done')
       }
     })
 
@@ -183,6 +210,7 @@ export function useClaude(panelId: string, cwd: string) {
       ts: Date.now(),
     })
     a.setStreaming(panelId, true)
+    a.setStatus(panelId, s.config.permissionMode === 'plan' ? 'planning' : 'running')
 
     if (!s.sessionId) {
       await api.createClaudeSession(panelId, s.config as unknown as Record<string, unknown>)
@@ -198,7 +226,10 @@ export function useClaude(panelId: string, cwd: string) {
 
   const approvePermission = useCallback((toolUseId: string) => {
     api.respondClaudePermission(panelId, toolUseId, true)
-    useClaudeStore.getState().resolvePermissionRequest(panelId, toolUseId)
+    const store = useClaudeStore.getState()
+    store.resolvePermissionRequest(panelId, toolUseId)
+    const panel = store.getPanel(panelId)
+    store.setStatus(panelId, panel.config.permissionMode === 'plan' ? 'planning' : 'running')
   }, [panelId])
 
   const denyPermission = useCallback((toolUseId: string) => {

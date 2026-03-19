@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import type { Thread } from '~/stores/app-store'
+import { collectLeafPanels } from '~/lib/panel-utils'
+import { useClaudeStore, getHighestPriorityStatus, STATUS_CONFIG } from '~/stores/claude-store'
+import type { ClaudeStatus } from '~/stores/claude-store'
 
 interface ThreadItemProps {
   thread: Thread
@@ -8,6 +11,30 @@ interface ThreadItemProps {
   onDelete: () => void
   onRename: (name: string) => void
   onDuplicate: () => void
+}
+
+function ThreadStatusDot({ thread }: { thread: Thread }) {
+  const panels = useClaudeStore((s) => s.panels)
+  const claudeIds: string[] = []
+  for (const tab of thread.tabs) {
+    for (const leaf of collectLeafPanels(tab.panel)) {
+      if (leaf.panelType === 'claude') claudeIds.push(leaf.id)
+    }
+  }
+  if (claudeIds.length === 0) return null
+  const statuses = claudeIds.map((id) => panels.get(id)?.status ?? 'idle' as ClaudeStatus)
+  const status = getHighestPriorityStatus(statuses)
+  if (!status) return null
+  const config = STATUS_CONFIG[status]
+  if (!config) return null
+  return (
+    <span
+      className="ml-auto shrink-0 rounded-full px-[5px] py-px text-[9px] font-medium"
+      style={{ color: config.color, background: `color-mix(in srgb, ${config.color} 12%, transparent)` }}
+    >
+      {config.label}
+    </span>
+  )
 }
 
 export function ThreadItem({
@@ -75,8 +102,9 @@ export function ThreadItem({
         ) : (
           <span className="min-w-0 flex-1 truncate">{thread.name}</span>
         )}
+        {!editing && <ThreadStatusDot thread={thread} />}
         {!editing && thread.tabs.length > 1 && (
-          <span className="ml-2 shrink-0 rounded-full bg-bg-tertiary px-[5px] py-px text-[10px] tabular-nums text-text-dim">
+          <span className="ml-1 shrink-0 rounded-full bg-bg-tertiary px-[5px] py-px text-[10px] tabular-nums text-text-dim">
             {thread.tabs.length}
           </span>
         )}
