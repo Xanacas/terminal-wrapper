@@ -33,7 +33,7 @@ function detectUnixShells(): ShellInfo[] {
 
   // fish (if installed)
   if (commandExists('fish')) {
-    shells.push({ id: 'fish', name: 'Fish', path: 'fish', args: ['--login'] })
+    shells.push({ id: 'fish', name: 'Fish', path: 'fish', args: ['-l'] })
   }
 
   // sh (always available)
