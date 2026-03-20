@@ -4,8 +4,21 @@
  * "AttachConsole failed" when running inside Electron on Windows.
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync, chmodSync, readdirSync } from 'fs'
 import { join } from 'path'
+
+// Fix spawn-helper execute permissions on macOS/Linux.
+// node-pty prebuilds ship without +x, causing posix_spawnp to fail.
+const prebuildsDir = join(import.meta.dirname, '..', 'node_modules', 'node-pty', 'prebuilds')
+if (existsSync(prebuildsDir)) {
+  for (const dir of readdirSync(prebuildsDir)) {
+    const helper = join(prebuildsDir, dir, 'spawn-helper')
+    if (existsSync(helper)) {
+      chmodSync(helper, 0o755)
+    }
+  }
+  console.log('Fixed node-pty spawn-helper permissions')
+}
 
 const agentPath = join(
   import.meta.dirname,

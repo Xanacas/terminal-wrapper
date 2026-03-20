@@ -10,14 +10,54 @@ export interface ShellInfo {
 
 function commandExists(cmd: string): boolean {
   try {
-    execSync(`where ${cmd}`, { stdio: 'ignore' })
+    const check = process.platform === 'win32' ? `where ${cmd}` : `which ${cmd}`
+    execSync(check, { stdio: 'ignore' })
     return true
   } catch {
     return false
   }
 }
 
-export function detectShells(): ShellInfo[] {
+function detectUnixShells(): ShellInfo[] {
+  const shells: ShellInfo[] = []
+
+  // zsh (default on modern macOS)
+  if (existsSync('/bin/zsh')) {
+    shells.push({ id: 'zsh', name: 'zsh', path: '/bin/zsh', args: ['--login'] })
+  }
+
+  // bash
+  if (existsSync('/bin/bash')) {
+    shells.push({ id: 'bash', name: 'Bash', path: '/bin/bash', args: ['--login'] })
+  }
+
+  // fish (if installed)
+  if (commandExists('fish')) {
+    shells.push({ id: 'fish', name: 'Fish', path: 'fish', args: ['-l'] })
+  }
+
+  // sh (always available)
+  if (existsSync('/bin/sh')) {
+    shells.push({ id: 'sh', name: 'sh', path: '/bin/sh' })
+  }
+
+  // Prefer $SHELL if set — move it to front
+  const userShell = process.env.SHELL
+  if (userShell) {
+    const idx = shells.findIndex((s) => s.path === userShell)
+    if (idx > 0) {
+      const [preferred] = shells.splice(idx, 1)
+      shells.unshift(preferred)
+    } else if (idx === -1 && existsSync(userShell)) {
+      const name = userShell.split('/').pop() ?? userShell
+      shells.unshift({ id: name, name, path: userShell, args: ['--login'] })
+    }
+  }
+
+  return shells
+}
+
+function detectWindowsShells(): ShellInfo[] {
   const shells: ShellInfo[] = []
 
   // PowerShell 7+ (pwsh)
@@ -53,6 +93,12 @@ export function detectShells(): ShellInfo[] {
   return shells
 }
 
+export function detectShells(): ShellInfo[] {
+  return process.platform === 'win32' ? detectWindowsShells() : detectUnixShells()
+}
+
 export function getDefaultShell(shells: ShellInfo[]): ShellInfo {
-  return shells[0] ?? { id: 'cmd', name: 'Command Prompt', path: 'cmd.exe' }
+  const fallbackPath = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh'
+  const fallbackName = process.platform === 'win32' ? 'Command Prompt' : 'sh'
+  return shells[0] ?? { id: fallbackName, name: fallbackName, path: fallbackPath }
 }
