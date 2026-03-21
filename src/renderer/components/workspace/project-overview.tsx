@@ -80,6 +80,7 @@ interface ProjectOverviewProps {
 export function ProjectOverview({ project }: ProjectOverviewProps) {
   const { addTodo, toggleTodo, deleteTodo, switchThread } = useProjects()
   const closeProjectOverview = useUIStore((s) => s.closeProjectOverview)
+  const openProjectSettings = useUIStore((s) => s.openProjectSettings)
 
   const allTodos = project.todos ?? []
   const projectTodos = allTodos.filter((t) => t.threadId === null)
@@ -106,7 +107,24 @@ export function ProjectOverview({ project }: ProjectOverviewProps) {
         <div className="mx-auto max-w-[600px] space-y-6 p-6">
           {/* Project Info */}
           <div>
-            <h2 className="mb-4 text-[16px] font-semibold text-text">{project.name}</h2>
+            <div className="mb-4 flex items-center gap-2">
+              <h2 className="text-[16px] font-semibold text-text">{project.name}</h2>
+              <button
+                onClick={() => openProjectSettings(project.id)}
+                className="flex h-[24px] w-[24px] items-center justify-center rounded-md text-text-dim transition-colors hover:bg-bg-secondary hover:text-text"
+                title="Project Settings"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M6.5 1.5h3l.4 1.8.7.3 1.6-.9 2.1 2.1-.9 1.6.3.7 1.8.4v3l-1.8.4-.3.7.9 1.6-2.1 2.1-1.6-.9-.7.3-.4 1.8h-3l-.4-1.8-.7-.3-1.6.9-2.1-2.1.9-1.6-.3-.7-1.8-.4v-3l1.8-.4.3-.7-.9-1.6 2.1-2.1 1.6.9.7-.3.4-1.8z"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinejoin="round"
+                  />
+                  <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.2" />
+                </svg>
+              </button>
+            </div>
             <div className="space-y-2 rounded-lg border border-border/60 bg-bg-secondary p-4">
               <InfoRow label="Working Directory" value={project.defaultCwd} />
               <InfoRow label="Default URL" value={project.defaultUrl} />
