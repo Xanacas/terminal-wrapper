@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { renderMarkdown } from '~/lib/markdown'
 
 interface QuestionOption {
   label: string
@@ -30,8 +31,13 @@ function questionHasPreview(q: Question) {
   return q.options.some((o) => o.preview)
 }
 
+/** Detect whether preview content is HTML (contains tags) or markdown */
+function isHtmlContent(content: string) {
+  return /<[a-z][^>]*>/i.test(content)
+}
+
 /** Sandboxed HTML preview rendered in an iframe */
-function PreviewPane({ html }: { html: string }) {
+function HtmlPreviewPane({ html }: { html: string }) {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [height, setHeight] = useState(100)
 
@@ -75,6 +81,23 @@ function PreviewPane({ html }: { html: string }) {
       title="Option preview"
     />
   )
+}
+
+/** Markdown preview rendered natively */
+function MarkdownPreviewPane({ content }: { content: string }) {
+  return (
+    <div className="max-h-[300px] overflow-auto rounded-md border border-border/30 bg-bg-tertiary p-2.5">
+      {renderMarkdown(content)}
+    </div>
+  )
+}
+
+/** Auto-detecting preview: renders HTML in iframe, markdown natively */
+function PreviewPane({ content }: { content: string }) {
+  if (isHtmlContent(content)) {
+    return <HtmlPreviewPane html={content} />
+  }
+  return <MarkdownPreviewPane content={content} />
 }
 
 /** Radio or checkbox indicator */
@@ -229,7 +252,7 @@ export function AskUserQuestionPrompt({ toolUseId, input, onSubmit, onDeny }: As
                             {/* Preview area */}
                             {opt.preview ? (
                               <div className="overflow-hidden rounded-t-[7px]">
-                                <PreviewPane html={opt.preview} />
+                                <PreviewPane content={opt.preview} />
                               </div>
                             ) : (
                               <div className="flex h-[80px] items-center justify-center rounded-t-[7px] bg-bg-tertiary/50">
