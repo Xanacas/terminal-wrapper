@@ -316,6 +316,9 @@ async function startNewQuery(
     includePartialMessages: true,
     canUseTool,
     spawnClaudeCodeProcess: getSpawnClaudeCodeProcess(config.docker),
+    toolConfig: {
+      askUserQuestion: { previewFormat: 'html' },
+    },
   }
 
   if (config.maxTurns) queryOptions.maxTurns = config.maxTurns
