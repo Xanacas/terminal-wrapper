@@ -10,6 +10,12 @@ export function useClaude(panelId: string, cwd: string) {
     const p = s.projects.find((proj) => proj.id === s.activeProjectId)
     return p?.claudeConfig
   })
+  const activeThreadDevContainer = useAppStore((s) => {
+    const p = s.projects.find((proj) => proj.id === s.activeProjectId)
+    const thread = p?.threads.find((t) => t.id === p.activeThreadId)
+    return thread?.devContainer
+  })
+  const devContainerGlobal = useAppStore((s) => s.devContainerGlobal)
 
   const state = panel ?? {
     messages: [],
@@ -47,10 +53,19 @@ export function useClaude(panelId: string, cwd: string) {
       if (projectClaudeConfig?.model) defaults.model = projectClaudeConfig.model as ClaudePanelConfig['model']
       if (projectClaudeConfig?.permissionMode) defaults.permissionMode = projectClaudeConfig.permissionMode as PermissionMode
       if (projectClaudeConfig?.effort) defaults.effort = projectClaudeConfig.effort as ClaudePanelConfig['effort']
-      if (projectClaudeConfig?.docker) defaults.docker = projectClaudeConfig.docker
+      // Thread-level devContainer overrides project-level Docker config
+      if (activeThreadDevContainer) {
+        defaults.docker = {
+          container: `${activeThreadDevContainer.containerName}-app-1`,
+          user: devContainerGlobal?.defaultUser ?? 'node',
+          workdir: devContainerGlobal?.defaultWorkdir ?? '/workspace',
+        }
+      } else if (projectClaudeConfig?.docker) {
+        defaults.docker = projectClaudeConfig.docker
+      }
       if (Object.keys(defaults).length > 0) store.updateConfig(panelId, defaults)
     }
-  }, [panelId, state.initialized, state.config.cwd, cwd, projectClaudeConfig])
+  }, [panelId, state.initialized, state.config.cwd, cwd, projectClaudeConfig, activeThreadDevContainer, devContainerGlobal])
 
   useEffect(() => {
     hasStreamDeltasRef.current = false
@@ -248,6 +263,14 @@ export function useClaude(panelId: string, cwd: string) {
     store.setStatus(panelId, panel.config.permissionMode === 'plan' ? 'planning' : 'running')
   }, [panelId])
 
+  const approveWithAnswers = useCallback((toolUseId: string, answers: Record<string, string>) => {
+    api.respondClaudePermission(panelId, toolUseId, true, { answers })
+    const store = useClaudeStore.getState()
+    store.resolvePermissionRequest(panelId, toolUseId)
+    const panel = store.getPanel(panelId)
+    store.setStatus(panelId, panel.config.permissionMode === 'plan' ? 'planning' : 'running')
+  }, [panelId])
+
   const denyPermission = useCallback((toolUseId: string) => {
     api.respondClaudePermission(panelId, toolUseId, false)
     useClaudeStore.getState().resolvePermissionRequest(panelId, toolUseId)
@@ -362,6 +385,7 @@ export function useClaude(panelId: string, cwd: string) {
     sendMessage,
     interrupt,
     approvePermission,
+    approveWithAnswers,
     denyPermission,
     alwaysAllowTool,
     updateConfig,

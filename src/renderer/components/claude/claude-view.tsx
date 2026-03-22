@@ -32,6 +32,7 @@ export function ClaudeView({ panelId, cwd, onOpenUrl }: ClaudeViewProps) {
     sendMessage,
     interrupt,
     approvePermission,
+    approveWithAnswers,
     denyPermission,
     alwaysAllowTool,
     updateConfig,
@@ -124,6 +125,7 @@ export function ClaudeView({ panelId, cwd, onOpenUrl }: ClaudeViewProps) {
           isStreaming={isStreaming}
           pendingPermissions={pendingPermissions}
           onApprovePermission={approvePermission}
+          onApproveWithAnswers={approveWithAnswers}
           onDenyPermission={denyPermission}
           onAlwaysAllowPermission={alwaysAllowTool}
           onLinkClick={handleLinkClick}

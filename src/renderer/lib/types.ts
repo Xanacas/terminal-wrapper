@@ -91,7 +91,7 @@ export interface Api {
   sendClaudeMessage: (panelId: string, text: string, images?: Array<{ base64: string; mediaType: string }>) => Promise<{ ok: boolean }>
   interruptClaude: (panelId: string) => void
   destroyClaude: (panelId: string) => void
-  respondClaudePermission: (panelId: string, toolUseId: string, allowed: boolean) => void
+  respondClaudePermission: (panelId: string, toolUseId: string, allowed: boolean, updatedInput?: Record<string, unknown>) => void
   updateClaudeConfig: (panelId: string, updates: Record<string, unknown>) => Promise<{ ok: boolean }>
   setClaudeCwd: (panelId: string, cwd: string) => Promise<{ ok: boolean }>
   listClaudeSessions: (cwd: string) => Promise<ClaudeSessionSummary[]>
@@ -102,6 +102,20 @@ export interface Api {
   onClaudePermissionRequest: (callback: (panelId: string, msg: unknown) => void) => () => void
   onClaudeSessionEnded: (callback: (panelId: string, msg: unknown) => void) => () => void
   onClaudeError: (callback: (panelId: string, msg: unknown) => void) => () => void
+
+  // DevContainer
+  spawnDevContainer: (repo: string, branch: string, name: string, projectType?: string) => Promise<{ ok: boolean; error?: string }>
+  stopDevContainer: (name: string) => Promise<{ ok: boolean; error?: string }>
+  startDevContainer: (name: string) => Promise<{ ok: boolean; error?: string }>
+  destroyDevContainer: (name: string) => Promise<{ ok: boolean; error?: string }>
+  getDevContainerStatus: (name: string) => Promise<{ status: 'running' | 'stopped' | 'not-found'; error?: string }>
+  listRemoteBranches: (repo: string) => Promise<string[]>
+  checkContainerGitStatus: (name: string) => Promise<{ hasUncommitted: boolean; hasUnpushed: boolean; branch: string }>
+  pushContainerBranch: (name: string) => Promise<{ ok: boolean; error?: string }>
+  spawnDockerTerminal: (id: string, containerName: string, user: string, workdir: string, cols: number, rows: number) => Promise<{ ok?: boolean; error?: string }>
+  onDevContainerLog: (callback: (name: string, line: string) => void) => () => void
+  onDevContainerReady: (callback: (name: string) => void) => () => void
+  onDevContainerError: (callback: (name: string, error: string) => void) => () => void
 
   // URL
   openExternal: (url: string) => void

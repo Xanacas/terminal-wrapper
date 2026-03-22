@@ -124,8 +124,8 @@ const api = {
     ipcRenderer.invoke('claude:send-message', panelId, text, images),
   interruptClaude: (panelId: string) => ipcRenderer.send('claude:interrupt', panelId),
   destroyClaude: (panelId: string) => ipcRenderer.send('claude:destroy-session', panelId),
-  respondClaudePermission: (panelId: string, toolUseId: string, allowed: boolean) =>
-    ipcRenderer.send('claude:respond-permission', panelId, toolUseId, allowed),
+  respondClaudePermission: (panelId: string, toolUseId: string, allowed: boolean, updatedInput?: Record<string, unknown>) =>
+    ipcRenderer.send('claude:respond-permission', panelId, toolUseId, allowed, updatedInput),
   updateClaudeConfig: (panelId: string, updates: Record<string, unknown>): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke('claude:update-config', panelId, updates),
   setClaudeCwd: (panelId: string, cwd: string): Promise<{ ok: boolean }> =>
@@ -161,6 +161,41 @@ const api = {
       callback(panelId, msg)
     ipcRenderer.on('claude:error', handler)
     return () => ipcRenderer.removeListener('claude:error', handler)
+  },
+
+  // DevContainer
+  spawnDevContainer: (repo: string, branch: string, name: string, projectType?: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('devcontainer:spawn', repo, branch, name, projectType),
+  stopDevContainer: (name: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('devcontainer:stop', name),
+  startDevContainer: (name: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('devcontainer:start', name),
+  destroyDevContainer: (name: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('devcontainer:destroy', name),
+  getDevContainerStatus: (name: string): Promise<{ status: 'running' | 'stopped' | 'not-found'; error?: string }> =>
+    ipcRenderer.invoke('devcontainer:status', name),
+  listRemoteBranches: (repo: string): Promise<string[]> =>
+    ipcRenderer.invoke('devcontainer:list-branches', repo),
+  checkContainerGitStatus: (name: string): Promise<{ hasUncommitted: boolean; hasUnpushed: boolean; branch: string }> =>
+    ipcRenderer.invoke('devcontainer:git-status', name),
+  pushContainerBranch: (name: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('devcontainer:push', name),
+  spawnDockerTerminal: (id: string, containerName: string, user: string, workdir: string, cols: number, rows: number): Promise<{ ok?: boolean; error?: string }> =>
+    ipcRenderer.invoke('terminal:spawn-docker', id, containerName, user, workdir, cols, rows),
+  onDevContainerLog: (callback: (name: string, line: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, name: string, line: string) => callback(name, line)
+    ipcRenderer.on('devcontainer:log', handler)
+    return () => ipcRenderer.removeListener('devcontainer:log', handler)
+  },
+  onDevContainerReady: (callback: (name: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, name: string) => callback(name)
+    ipcRenderer.on('devcontainer:ready', handler)
+    return () => ipcRenderer.removeListener('devcontainer:ready', handler)
+  },
+  onDevContainerError: (callback: (name: string, error: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, name: string, error: string) => callback(name, error)
+    ipcRenderer.on('devcontainer:error', handler)
+    return () => ipcRenderer.removeListener('devcontainer:error', handler)
   },
 
   // Logging

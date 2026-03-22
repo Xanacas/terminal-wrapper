@@ -2,11 +2,13 @@ import type { ClaudeMessage } from '~/stores/claude-store'
 import { renderMarkdown } from '~/lib/markdown'
 import { ToolUseBlock } from './tool-use-block'
 import { PermissionPrompt } from './permission-prompt'
+import { AskUserQuestionPrompt, AskUserQuestionResolved } from './ask-user-question-prompt'
 
 interface MessageItemProps {
   message: ClaudeMessage
   onLinkClick?: (url: string) => void
   onApprovePermission?: (toolUseId: string) => void
+  onApproveWithAnswers?: (toolUseId: string, answers: Record<string, string>) => void
   onDenyPermission?: (toolUseId: string) => void
   onAlwaysAllowPermission?: (toolUseId: string, toolName: string) => void
   isPendingPermission?: boolean
@@ -16,6 +18,7 @@ export function MessageItem({
   message,
   onLinkClick,
   onApprovePermission,
+  onApproveWithAnswers,
   onDenyPermission,
   onAlwaysAllowPermission,
   isPendingPermission,
@@ -74,28 +77,44 @@ export function MessageItem({
         </div>
       )
 
-    case 'permission-request':
+    case 'permission-request': {
+      const isAskUserQuestion = message.toolName === 'AskUserQuestion'
+
       return (
         <div className="px-4 py-0.5">
-          {isPendingPermission && onApprovePermission && onDenyPermission ? (
-            <PermissionPrompt
-              toolName={message.toolName ?? 'Unknown'}
-              toolUseId={message.toolUseId ?? ''}
-              input={message.toolInput}
-              title={message.permissionTitle}
-              onApprove={onApprovePermission}
-              onDeny={onDenyPermission}
-              onAlwaysAllow={onAlwaysAllowPermission}
-            />
+          {isPendingPermission ? (
+            isAskUserQuestion && onApproveWithAnswers && onDenyPermission ? (
+              <AskUserQuestionPrompt
+                toolUseId={message.toolUseId ?? ''}
+                input={message.toolInput}
+                onSubmit={onApproveWithAnswers}
+                onDeny={onDenyPermission}
+              />
+            ) : onApprovePermission && onDenyPermission ? (
+              <PermissionPrompt
+                toolName={message.toolName ?? 'Unknown'}
+                toolUseId={message.toolUseId ?? ''}
+                input={message.toolInput}
+                title={message.permissionTitle}
+                onApprove={onApprovePermission}
+                onDeny={onDenyPermission}
+                onAlwaysAllow={onAlwaysAllowPermission}
+              />
+            ) : null
           ) : (
-            <div className="rounded-lg border border-border bg-bg-secondary px-3 py-2">
-              <span className="text-[11px] text-text-dim">
-                Permission {isPendingPermission ? 'pending' : 'resolved'}: {message.toolName}
-              </span>
-            </div>
+            isAskUserQuestion ? (
+              <AskUserQuestionResolved input={message.toolInput} />
+            ) : (
+              <div className="rounded-lg border border-border bg-bg-secondary px-3 py-2">
+                <span className="text-[11px] text-text-dim">
+                  Permission resolved: {message.toolName}
+                </span>
+              </div>
+            )
           )}
         </div>
       )
+    }
 
     case 'system':
       return (

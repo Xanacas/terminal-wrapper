@@ -9,6 +9,7 @@ interface MessageListProps {
   isStreaming: boolean
   pendingPermissions: Array<{ toolUseId: string; toolName: string; input: unknown; title?: string }>
   onApprovePermission: (toolUseId: string) => void
+  onApproveWithAnswers?: (toolUseId: string, answers: Record<string, string>) => void
   onDenyPermission: (toolUseId: string) => void
   onAlwaysAllowPermission?: (toolUseId: string, toolName: string) => void
   onLinkClick?: (url: string) => void
@@ -20,6 +21,7 @@ export function MessageList({
   isStreaming,
   pendingPermissions,
   onApprovePermission,
+  onApproveWithAnswers,
   onDenyPermission,
   onAlwaysAllowPermission,
   onLinkClick,
@@ -82,6 +84,7 @@ export function MessageList({
             message={msg}
             onLinkClick={onLinkClick}
             onApprovePermission={onApprovePermission}
+            onApproveWithAnswers={onApproveWithAnswers}
             onDenyPermission={onDenyPermission}
             onAlwaysAllowPermission={onAlwaysAllowPermission}
             isPendingPermission={msg.toolUseId ? pendingIds.has(msg.toolUseId) : false}

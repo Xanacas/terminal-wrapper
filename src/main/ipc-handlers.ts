@@ -2,12 +2,13 @@ import { ipcMain, app, shell } from 'electron'
 import { homedir } from 'os'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'fs'
 import { join } from 'path'
-import { spawnPty, writePty, resizePty, killPty } from './terminal/pty-manager'
+import { spawnPty, spawnDockerPty, writePty, resizePty, killPty } from './terminal/pty-manager'
 import { detectShells } from './terminal/shell-detector'
 import * as browserManager from './browser/browser-manager'
 import * as store from './store'
 import * as claudeSessionManager from './claude/claude-session-manager'
 import * as logger from './logger'
+import * as devcontainerManager from './devcontainer/devcontainer-manager'
 
 export function registerIpcHandlers(): void {
   // ---- System ----
@@ -245,6 +246,8 @@ export function registerIpcHandlers(): void {
           return store.setActiveProject(payload.id as string)
         case 'setState':
           return store.setState(payload as Partial<store.AppState>)
+        case 'updateDevContainerGlobal':
+          return store.setState({ devContainerGlobal: payload as store.AppState['devContainerGlobal'] })
         default:
           console.warn('Unknown store action:', action)
           return store.getState()
@@ -273,8 +276,8 @@ export function registerIpcHandlers(): void {
     claudeSessionManager.destroySession(panelId)
   })
 
-  ipcMain.on('claude:respond-permission', (_event, panelId: string, toolUseId: string, allowed: boolean) => {
-    claudeSessionManager.respondToPermission(panelId, toolUseId, allowed)
+  ipcMain.on('claude:respond-permission', (_event, panelId: string, toolUseId: string, allowed: boolean, updatedInput?: Record<string, unknown>) => {
+    claudeSessionManager.respondToPermission(panelId, toolUseId, allowed, updatedInput)
   })
 
   ipcMain.handle('claude:update-config', (_event, panelId: string, updates: Record<string, unknown>) => {
@@ -325,6 +328,65 @@ export function registerIpcHandlers(): void {
     logger.openLogFolder()
     return { ok: true }
   })
+
+  // ---- DevContainer ----
+  ipcMain.handle('devcontainer:spawn', (_event, repo: string, branch: string, name: string, projectType?: string) =>
+    devcontainerManager.spawnContainer(repo, branch, name, projectType)
+  )
+
+  ipcMain.handle('devcontainer:stop', (_event, name: string) =>
+    devcontainerManager.stopContainer(name)
+  )
+
+  ipcMain.handle('devcontainer:start', (_event, name: string) =>
+    devcontainerManager.startContainer(name)
+  )
+
+  ipcMain.handle('devcontainer:destroy', (_event, name: string) =>
+    devcontainerManager.destroyContainer(name)
+  )
+
+  ipcMain.handle('devcontainer:status', (_event, name: string) =>
+    devcontainerManager.inspectContainer(name)
+  )
+
+  ipcMain.handle('devcontainer:list-branches', (_event, repo: string) =>
+    devcontainerManager.listRemoteBranches(repo)
+  )
+
+  ipcMain.handle('devcontainer:git-status', (_event, name: string) =>
+    devcontainerManager.checkGitStatus(name)
+  )
+
+  ipcMain.handle('devcontainer:push', (_event, name: string) =>
+    devcontainerManager.pushContainerBranch(name)
+  )
+
+  // ---- Docker Terminal ----
+  ipcMain.handle(
+    'terminal:spawn-docker',
+    (event, id: string, containerName: string, user: string, workdir: string, cols: number, rows: number) => {
+      spawnDockerPty(
+        id,
+        containerName,
+        user,
+        workdir,
+        cols,
+        rows,
+        (data) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('terminal:data', id, data)
+          }
+        },
+        (exitCode) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send('terminal:exit', id, exitCode)
+          }
+        }
+      )
+      return { ok: true }
+    }
+  )
 
   // ---- URL ----
   ipcMain.on('url:open-external', (_event, url: string) => {

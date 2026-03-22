@@ -518,7 +518,7 @@ export function interruptSession(panelId: string) {
   }
 }
 
-export function respondToPermission(panelId: string, toolUseId: string, allowed: boolean) {
+export function respondToPermission(panelId: string, toolUseId: string, allowed: boolean, updatedInput?: Record<string, unknown>) {
   const session = sessions.get(panelId)
   if (!session) return
 
@@ -530,7 +530,9 @@ export function respondToPermission(panelId: string, toolUseId: string, allowed:
   session.pendingPermissions.delete(toolUseId)
 
   if (allowed) {
-    pending.resolve({ behavior: 'allow', updatedInput: pending.input })
+    // Merge any updated fields (e.g. answers from AskUserQuestion) into the input
+    const mergedInput = updatedInput ? { ...pending.input, ...updatedInput } : pending.input
+    pending.resolve({ behavior: 'allow', updatedInput: mergedInput })
   } else {
     pending.resolve({ behavior: 'deny', message: 'User denied permission' })
   }
