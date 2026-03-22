@@ -1,10 +1,17 @@
 import { app, Menu } from 'electron'
+
+// Allow E2E tests to use an isolated userData directory
+if (process.env.TERMINAL_WRAPPER_USER_DATA) {
+  app.setPath('userData', process.env.TERMINAL_WRAPPER_USER_DATA)
+}
+
 import { loadState } from './store'
 import { createMainWindow, getRendererWebContents } from './window-manager'
 import { registerIpcHandlers, setupStoreSync } from './ipc-handlers'
 import { killAll } from './terminal/pty-manager'
 import { destroyAll } from './browser/browser-manager'
 import { setWebContents, destroyAll as destroyAllClaude } from './claude/claude-session-manager'
+import { setWebContents as setDevContainerWebContents } from './devcontainer/devcontainer-manager'
 import { matchShortcut } from './shortcuts'
 import { initLogger, disposeLogger } from './logger'
 
@@ -23,6 +30,7 @@ app.whenReady().then(() => {
     wc.on('did-finish-load', () => {
       setupStoreSync(wc)
       setWebContents(wc)
+      setDevContainerWebContents(wc)
     })
   }
 
