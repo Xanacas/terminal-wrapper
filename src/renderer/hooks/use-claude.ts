@@ -1,10 +1,15 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { api } from '~/lib/ipc'
 import { useClaudeStore } from '~/stores/claude-store'
+import { useAppStore } from '~/stores/app-store'
 import type { ClaudePanelConfig, PermissionMode } from '~/stores/claude-store'
 
 export function useClaude(panelId: string, cwd: string) {
   const panel = useClaudeStore((s) => s.panels.get(panelId))
+  const projectClaudeConfig = useAppStore((s) => {
+    const p = s.projects.find((proj) => proj.id === s.activeProjectId)
+    return p?.claudeConfig
+  })
 
   const state = panel ?? {
     messages: [],
@@ -36,12 +41,16 @@ export function useClaude(panelId: string, cwd: string) {
     if (!state.initialized) {
       const store = useClaudeStore.getState()
       store.initPanel(panelId)
-      // Set initial CWD from prop if not already set
-      if (!state.config.cwd && cwd) {
-        store.updateConfig(panelId, { cwd })
-      }
+      // Apply project-level Claude defaults
+      const defaults: Partial<ClaudePanelConfig> = {}
+      if (!state.config.cwd && cwd) defaults.cwd = cwd
+      if (projectClaudeConfig?.model) defaults.model = projectClaudeConfig.model as ClaudePanelConfig['model']
+      if (projectClaudeConfig?.permissionMode) defaults.permissionMode = projectClaudeConfig.permissionMode as PermissionMode
+      if (projectClaudeConfig?.effort) defaults.effort = projectClaudeConfig.effort as ClaudePanelConfig['effort']
+      if (projectClaudeConfig?.docker) defaults.docker = projectClaudeConfig.docker
+      if (Object.keys(defaults).length > 0) store.updateConfig(panelId, defaults)
     }
-  }, [panelId, state.initialized, state.config.cwd, cwd])
+  }, [panelId, state.initialized, state.config.cwd, cwd, projectClaudeConfig])
 
   useEffect(() => {
     hasStreamDeltasRef.current = false
@@ -291,6 +300,7 @@ export function useClaude(panelId: string, cwd: string) {
   }, [])
 
   const resumeSession = useCallback(async (sessionId: string) => {
+    const s = stateRef.current
     const history = await api.getClaudeSessionHistory(sessionId)
     // Map SDK session messages to our message format
     const messages = (history as Array<Record<string, unknown>>).map((m) => {
@@ -317,7 +327,9 @@ export function useClaude(panelId: string, cwd: string) {
       }
     })
 
-    useClaudeStore.getState().loadSessionHistory(panelId, messages)
+    useClaudeStore.getState().loadSessionHistory(panelId, messages, sessionId)
+    // Create a backend session first, then set the resume ID on it
+    await api.createClaudeSession(panelId, s.config as unknown as Record<string, unknown>)
     await api.resumeClaudeSession(panelId, sessionId)
   }, [panelId])
 

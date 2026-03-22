@@ -23,6 +23,9 @@ export function ProjectSettings() {
   const [claudeModel, setClaudeModel] = useState('sonnet')
   const [claudePermMode, setClaudePermMode] = useState('default')
   const [claudeEffort, setClaudeEffort] = useState('high')
+  const [dockerContainer, setDockerContainer] = useState('')
+  const [dockerUser, setDockerUser] = useState('')
+  const [dockerWorkdir, setDockerWorkdir] = useState('')
 
   useEffect(() => {
     if (project) {
@@ -34,6 +37,9 @@ export function ProjectSettings() {
       setClaudeModel(project.claudeConfig?.model ?? 'sonnet')
       setClaudePermMode(project.claudeConfig?.permissionMode ?? 'default')
       setClaudeEffort(project.claudeConfig?.effort ?? 'high')
+      setDockerContainer(project.claudeConfig?.docker?.container ?? '')
+      setDockerUser(project.claudeConfig?.docker?.user ?? '')
+      setDockerWorkdir(project.claudeConfig?.docker?.workdir ?? '')
     }
   }, [project])
 
@@ -73,11 +79,16 @@ export function ProjectSettings() {
         model: claudeModel,
         permissionMode: claudePermMode,
         effort: claudeEffort,
+        docker: dockerContainer ? {
+          container: dockerContainer,
+          user: dockerUser || undefined,
+          workdir: dockerWorkdir || undefined,
+        } : undefined,
       }
     })
     ensureThread()
     close()
-  }, [projectId, name, cwd, url, urlRouting, claudeCwd, claudeModel, claudePermMode, claudeEffort, updateProject, ensureThread, close])
+  }, [projectId, name, cwd, url, urlRouting, claudeCwd, claudeModel, claudePermMode, claudeEffort, dockerContainer, dockerUser, dockerWorkdir, updateProject, ensureThread, close])
 
   const isNewProject = project?.threads.length === 0
 
@@ -231,6 +242,45 @@ export function ProjectSettings() {
                 ))}
               </div>
             </div>
+
+            {/* Docker Target */}
+            <div className="mt-3 flex flex-col gap-2">
+              <label className="text-[11px] font-medium uppercase tracking-wide text-text-dim">Docker Container</label>
+              <input
+                value={dockerContainer}
+                onChange={(e) => setDockerContainer(e.target.value)}
+                className="rounded-lg border border-border bg-bg-tertiary px-3 py-2 text-[12.5px] text-text outline-none transition-all duration-150 focus:ring-1 focus:ring-accent/40 focus:border-accent/40"
+                spellCheck={false}
+                placeholder="e.g. my-app-container-1"
+              />
+              <p className="text-[10.5px] text-text-dim">Run Claude Code inside a Docker container via <code className="text-text-muted">docker exec</code>. Leave empty for local.</p>
+            </div>
+            {dockerContainer && (
+              <>
+                <div className="flex gap-3">
+                  <div className="flex flex-1 flex-col gap-2">
+                    <label className="text-[11px] font-medium uppercase tracking-wide text-text-dim">User</label>
+                    <input
+                      value={dockerUser}
+                      onChange={(e) => setDockerUser(e.target.value)}
+                      className="rounded-lg border border-border bg-bg-tertiary px-3 py-2 text-[12.5px] text-text outline-none transition-all duration-150 focus:ring-1 focus:ring-accent/40 focus:border-accent/40"
+                      spellCheck={false}
+                      placeholder="e.g. node"
+                    />
+                  </div>
+                  <div className="flex flex-1 flex-col gap-2">
+                    <label className="text-[11px] font-medium uppercase tracking-wide text-text-dim">Workdir</label>
+                    <input
+                      value={dockerWorkdir}
+                      onChange={(e) => setDockerWorkdir(e.target.value)}
+                      className="rounded-lg border border-border bg-bg-tertiary px-3 py-2 text-[12.5px] text-text outline-none transition-all duration-150 focus:ring-1 focus:ring-accent/40 focus:border-accent/40"
+                      spellCheck={false}
+                      placeholder="/workspace"
+                    />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 

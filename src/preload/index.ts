@@ -17,6 +17,15 @@ export interface BrowserNavInfo {
 const api = {
   // System
   getHomeDir: (): Promise<string> => ipcRenderer.invoke('system:home-dir'),
+  isPackaged: (): Promise<boolean> => ipcRenderer.invoke('system:is-packaged'),
+
+  // Package.json
+  getPackageScripts: (cwd: string): Promise<Record<string, string>> =>
+    ipcRenderer.invoke('pkg:scripts', cwd),
+
+  // Git
+  getGitBranch: (cwd: string): Promise<string> =>
+    ipcRenderer.invoke('git:branch', cwd),
 
   // Shell
   listShells: (): Promise<ShellInfo[]> => ipcRenderer.invoke('shell:list'),

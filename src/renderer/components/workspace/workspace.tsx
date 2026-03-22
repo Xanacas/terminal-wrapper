@@ -9,8 +9,8 @@ import { ProjectOverview } from './project-overview'
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '~/lib/ipc'
 import type { ShellInfo } from '~/lib/types'
-import type { PanelType } from '~/lib/panel-utils'
-import { updateLeafInTree, firstLeafId, collectLeafPanels, createLeafPanel, splitPanel } from '~/lib/panel-utils'
+import type { PanelType, LeafPanel } from '~/lib/panel-utils'
+import { updateLeafInTree, firstLeafId, collectLeafPanels, createLeafPanel, splitPanel, createTab } from '~/lib/panel-utils'
 import { matchUrl, defaultUrlRoutingConfig } from '~/lib/url-routing'
 
 function ThreadWorkspace({
@@ -63,6 +63,36 @@ function ThreadWorkspace({
       updateProject(project.id, { threads })
     },
     [project, thread.id, activeTab, updateProject]
+  )
+
+  const handleSplitInCommandsTab = useCallback(
+    (newPanel: LeafPanel) => {
+      if (!activeTab) return
+      // Find the commands leaf and split it with the new terminal panel
+      const leaves = collectLeafPanels(activeTab.panel)
+      const commandsLeaf = leaves.find((l) => l.panelType === 'commands')
+      if (!commandsLeaf) return
+
+      const newRoot = splitPanel(activeTab.panel, commandsLeaf.id, 'vertical', newPanel)
+      const threads = project.threads.map((t) => {
+        if (t.id !== thread.id) return t
+        return { ...t, tabs: t.tabs.map((tb) => (tb.id === activeTab.id ? { ...tb, panel: newRoot } : tb)) }
+      })
+      updateProject(project.id, { threads })
+    },
+    [project, thread.id, activeTab, updateProject]
+  )
+
+  const handleAddTab = useCallback(
+    (name: string, panel: LeafPanel) => {
+      const tab = createTab(name, panel)
+      const threads = project.threads.map((t) => {
+        if (t.id !== thread.id) return t
+        return { ...t, tabs: [...t.tabs, tab], activeTabId: tab.id }
+      })
+      updateProject(project.id, { threads })
+    },
+    [project, thread.id, updateProject]
   )
 
   const handleOpenUrl = useCallback(
@@ -138,6 +168,8 @@ function ThreadWorkspace({
                 onSetPanelType={handleSetPanelType}
                 onUrlChange={handleUrlChange}
                 onOpenUrl={handleOpenUrl}
+                onSplitInCommandsTab={handleSplitInCommandsTab}
+                onAddTab={handleAddTab}
               />
             </div>
           )
@@ -150,11 +182,13 @@ function ThreadWorkspace({
 function ProjectWorkspace({ project, active }: { project: Project; active: boolean }) {
   const { updateProject } = useProjects()
   const [shells, setShells] = useState<ShellInfo[]>([])
+  const [isDev, setIsDev] = useState(false)
   const activeThread = project.threads.find((t) => t.id === project.activeThreadId)
   const projectOverviewId = useUIStore((s) => s.projectOverviewId)
   const showOverview = projectOverviewId === project.id
 
   useEffect(() => { api.listShells().then(setShells) }, [])
+  useEffect(() => { api.isPackaged().then((packaged) => setIsDev(!packaged)) }, [])
 
   const handleShellChange = useCallback(
     (shellId: string) => updateProject(project.id, { defaultShellId: shellId }),
@@ -164,8 +198,13 @@ function ProjectWorkspace({ project, active }: { project: Project; active: boole
   return (
     <div className="flex h-full flex-col">
       {/* Title bar / toolbar — sits in the window drag area */}
-      <div className="flex h-[38px] shrink-0 items-center border-b border-border/60 bg-bg app-drag-region">
+      <div className={`flex h-[38px] shrink-0 items-center border-b app-drag-region ${isDev ? 'border-amber-900/60 bg-amber-950/30' : 'border-border/60 bg-bg'}`}>
         <div className="flex min-w-0 flex-1 items-center pl-3.5">
+          {isDev && (
+            <span className="mr-2 shrink-0 rounded bg-amber-600/80 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+              dev
+            </span>
+          )}
           <span className="truncate text-[12.5px] font-medium text-text-secondary transition-colors duration-150 hover:text-text">
             {project.name}
           </span>

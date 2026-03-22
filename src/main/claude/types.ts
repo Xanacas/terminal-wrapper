@@ -10,6 +10,12 @@ export interface McpServerConfig {
   env?: Record<string, string>
 }
 
+export interface DockerTarget {
+  container: string
+  user?: string
+  workdir?: string
+}
+
 export interface ClaudeSessionConfig {
   cwd: string
   model: string
@@ -23,6 +29,7 @@ export interface ClaudeSessionConfig {
   disallowedTools: string[]
   mcpServers?: Record<string, McpServerConfig>
   additionalDirectories: string[]
+  docker?: DockerTarget
 }
 
 export interface ClaudeSessionSummary {

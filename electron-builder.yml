@@ -1,0 +1,21 @@
+appId: com.xanacas.coding-wrapper
+productName: Coding Wrapper
+directories:
+  buildResources: build
+  output: dist
+files:
+  - out/**/*
+  - "!node_modules/**/*"
+  - node_modules/node-pty/**/*
+  - node_modules/@anthropic-ai/claude-agent-sdk/**/*
+asarUnpack:
+  - node_modules/node-pty/**/*
+  - node_modules/@anthropic-ai/claude-agent-sdk/**/*
+  - node_modules/@img/**/*
+  - node_modules/sharp/**/*
+npmRebuild: false
+win:
+  target: portable
+  executableName: coding-wrapper
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}

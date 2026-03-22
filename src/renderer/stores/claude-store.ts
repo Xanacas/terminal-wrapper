@@ -42,6 +42,11 @@ interface ClaudePanelConfig {
   allowedTools: string[]
   disallowedTools: string[]
   additionalDirectories: string[]
+  docker?: {
+    container: string
+    user?: string
+    workdir?: string
+  }
 }
 
 interface ClaudeMessage {
@@ -116,7 +121,7 @@ interface ClaudeStore {
   updateConfig: (panelId: string, updates: Partial<ClaudePanelConfig>) => void
   setSettingsOpen: (panelId: string, open: boolean) => void
   setHistoryOpen: (panelId: string, open: boolean) => void
-  loadSessionHistory: (panelId: string, messages: ClaudeMessage[]) => void
+  loadSessionHistory: (panelId: string, messages: ClaudeMessage[], sessionId: string) => void
   clearSession: (panelId: string) => void
   setStatus: (panelId: string, status: ClaudeStatus) => void
   setPendingCwdChange: (panelId: string, cwd: string | null) => void
@@ -239,12 +244,13 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
     updatePanel(set, panelId, () => ({ historyOpen: open }))
   },
 
-  loadSessionHistory: (panelId, messages) => {
+  loadSessionHistory: (panelId, messages, sessionId) => {
     updatePanel(set, panelId, () => ({
       messages,
       isStreaming: false,
       currentStreamText: '',
       pendingPermissions: [],
+      sessionId,
     }))
   },
 

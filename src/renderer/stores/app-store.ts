@@ -19,6 +19,17 @@ export interface Thread {
   activeTabId: string
 }
 
+export interface QuickCommand {
+  id: string
+  name: string
+  command: string
+  icon?: 'play' | 'build' | 'test' | 'deploy' | 'script'
+  executionMode: 'popover' | 'panel' | 'tab'
+  autoDismiss?: boolean
+  cwdOverride?: string
+  shellIdOverride?: string
+}
+
 export interface Project {
   id: string
   name: string
@@ -41,8 +52,14 @@ export interface Project {
     systemPrompt?: string
     allowedTools?: string[]
     disallowedTools?: string[]
+    docker?: {
+      container: string
+      user?: string
+      workdir?: string
+    }
   }
   todos?: TodoItem[]
+  quickCommands?: QuickCommand[]
 }
 
 export interface AppState {
@@ -50,6 +67,7 @@ export interface AppState {
   activeProjectId: string | null
   windowBounds: { x: number; y: number; width: number; height: number } | null
   isMaximized: boolean
+  quickCommands?: QuickCommand[]
 }
 
 interface AppStore extends AppState {
@@ -69,11 +87,12 @@ export const useAppStore = create<AppStore>((set, get) => ({
   activeProjectId: null,
   windowBounds: null,
   isMaximized: false,
+  quickCommands: [],
   initialized: false,
 
   init: async () => {
     const state = (await api.getState()) as AppState
-    set({ ...state, initialized: true })
+    set({ ...state, quickCommands: state.quickCommands ?? [], initialized: true })
 
     api.onStateChanged((newState) => {
       const s = newState as AppState
@@ -81,7 +100,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
         projects: s.projects,
         activeProjectId: s.activeProjectId,
         windowBounds: s.windowBounds,
-        isMaximized: s.isMaximized
+        isMaximized: s.isMaximized,
+        quickCommands: s.quickCommands ?? []
       })
     })
   },

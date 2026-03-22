@@ -9,6 +9,7 @@
     "preview": "electron-vite preview",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "package": "electron-vite build && electron-builder --win portable",
     "postinstall": "node scripts/patch-node-pty.js"
   },
   "dependencies": {

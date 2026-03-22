@@ -12,6 +12,28 @@ export function registerIpcHandlers(): void {
   // ---- System ----
   ipcMain.handle('system:home-dir', () => homedir())
   ipcMain.handle('system:user-data-path', () => app.getPath('userData'))
+  ipcMain.handle('system:is-packaged', () => app.isPackaged)
+
+  // ---- Package.json scripts ----
+  ipcMain.handle('pkg:scripts', (_event, cwd: string) => {
+    try {
+      const raw = readFileSync(join(cwd, 'package.json'), 'utf-8')
+      const pkg = JSON.parse(raw)
+      return pkg.scripts ?? {}
+    } catch {
+      return {}
+    }
+  })
+
+  // ---- Git branch ----
+  ipcMain.handle('git:branch', async (_event, cwd: string) => {
+    try {
+      const { execSync } = await import('child_process')
+      return execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf-8' }).trim()
+    } catch {
+      return ''
+    }
+  })
 
   // ---- Dialogs ----
   ipcMain.handle('dialog:open-folder', async () => {

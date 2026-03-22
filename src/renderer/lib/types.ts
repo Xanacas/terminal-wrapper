@@ -24,6 +24,13 @@ export interface ClaudeSessionSummary {
 export interface Api {
   // System
   getHomeDir: () => Promise<string>
+  isPackaged: () => Promise<boolean>
+
+  // Package.json
+  getPackageScripts: (cwd: string) => Promise<Record<string, string>>
+
+  // Git
+  getGitBranch: (cwd: string) => Promise<string>
 
   // Shell
   listShells: () => Promise<ShellInfo[]>

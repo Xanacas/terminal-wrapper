@@ -1,5 +1,115 @@
-import type { WebContents } from 'electron'
-import type { ClaudeSessionConfig, ClaudeSessionSummary } from './types'
+import { spawn } from 'child_process'
+import { join } from 'path'
+import { app, type WebContents } from 'electron'
+import type { ClaudeSessionConfig, ClaudeSessionSummary, DockerTarget } from './types'
+
+interface SpawnOpts {
+  command: string
+  args: string[]
+  cwd: string
+  env: Record<string, string | undefined>
+  signal: AbortSignal // eslint-disable-line no-undef
+}
+
+interface SpawnResult {
+  stdin: NodeJS.WritableStream
+  stdout: NodeJS.ReadableStream
+  readonly killed: boolean
+  readonly exitCode: number | null
+  kill: (signal?: string) => boolean
+  on: (...args: unknown[]) => unknown
+  once: (...args: unknown[]) => unknown
+  off: (...args: unknown[]) => unknown
+}
+
+function wrapChild(child: ReturnType<typeof spawn>): SpawnResult {
+  child.stderr?.on('data', (data: Buffer) => {
+    console.error(`[claude-sdk:stderr] ${data.toString()}`)
+  })
+  return {
+    stdin: child.stdin!,
+    stdout: child.stdout!,
+    get killed() { return child.killed },
+    get exitCode() { return child.exitCode },
+    kill: child.kill.bind(child),
+    on: child.on.bind(child),
+    once: child.once.bind(child),
+    off: child.off.bind(child),
+  }
+}
+
+/**
+ * Spawns Claude Code inside a Docker container.
+ * The SDK passes args like: ["/path/to/cli.js", "--output-format", "stream-json", ...]
+ * We strip the cli.js path and forward everything else to `claude` inside the container.
+ */
+function spawnDocker(docker: DockerTarget, opts: SpawnOpts): SpawnResult {
+  // Drop any leading non-flag args (node path, cli.js path) — keep only flags and their values
+  const firstFlagIdx = opts.args.findIndex((a) => a.startsWith('-'))
+  const cliArgs = firstFlagIdx >= 0 ? opts.args.slice(firstFlagIdx) : []
+
+  // Shell-escape each arg for safe embedding inside bash -c
+  const escaped = cliArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`)
+
+  const workdir = docker.workdir ?? '/workspace'
+  const claudeCmd = `cd '${workdir}' && claude ${escaped.join(' ')}`
+
+  const dockerArgs = [
+    'exec', '-i',
+    ...(docker.user ? ['-u', docker.user] : []),
+    docker.container,
+    'bash', '-c', claudeCmd,
+  ]
+
+  console.log(`[claude:docker] Spawning: docker ${dockerArgs.join(' ')}`)
+
+  const child = spawn('docker', dockerArgs, {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    signal: opts.signal,
+    windowsHide: true,
+  })
+
+  return wrapChild(child)
+}
+
+/**
+ * Spawns Claude Code locally.
+ * In packaged builds: uses Electron's binary with ELECTRON_RUN_AS_NODE=1 and the unpacked cli.js.
+ * In dev: returns undefined to let the SDK handle spawning itself.
+ */
+function spawnLocal(opts: SpawnOpts): SpawnResult {
+  const asarUnpacked = join(
+    app.getAppPath().replace('app.asar', 'app.asar.unpacked'),
+    'node_modules',
+    '@anthropic-ai',
+    'claude-agent-sdk',
+    'cli.js'
+  )
+
+  const fixedArgs = opts.args.map((arg) =>
+    arg.includes('claude-agent-sdk') && arg.endsWith('cli.js') ? asarUnpacked : arg
+  )
+
+  const child = spawn(process.execPath, fixedArgs, {
+    cwd: opts.cwd,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    signal: opts.signal,
+    env: { ...opts.env, ELECTRON_RUN_AS_NODE: '1' },
+    windowsHide: true,
+  })
+
+  return wrapChild(child)
+}
+
+function getSpawnClaudeCodeProcess(docker?: DockerTarget) {
+  if (docker) {
+    return (opts: SpawnOpts) => spawnDocker(docker, opts)
+  }
+  if (app.isPackaged) {
+    return (opts: SpawnOpts) => spawnLocal(opts)
+  }
+  return undefined
+}
 
 // SDK query type — we use generic types since the SDK is loaded dynamically
 type SDKQuery = AsyncGenerator<Record<string, unknown>, void> & {
@@ -10,9 +120,10 @@ type SDKQuery = AsyncGenerator<Record<string, unknown>, void> & {
 interface PermissionResolver {
   resolve: (
     result:
-      | { behavior: 'allow'; updatedInput?: Record<string, unknown> }
+      | { behavior: 'allow'; updatedInput: Record<string, unknown> }
       | { behavior: 'deny'; message: string }
   ) => void
+  input: Record<string, unknown>
 }
 
 interface ClaudeSession {
@@ -63,6 +174,7 @@ export async function createSession(
       disallowedTools: config.disallowedTools ?? [],
       mcpServers: config.mcpServers,
       additionalDirectories: config.additionalDirectories ?? [],
+      docker: config.docker,
     },
     activeQuery: null,
     abortController: null,
@@ -162,7 +274,8 @@ async function startNewQuery(
       | { behavior: 'allow'; updatedInput?: Record<string, unknown> }
       | { behavior: 'deny'; message: string }
     >((resolve) => {
-      session.pendingPermissions.set(options.toolUseID, { resolve })
+      const inputClone = JSON.parse(JSON.stringify(input)) as Record<string, unknown>
+      session.pendingPermissions.set(options.toolUseID, { resolve, input: inputClone })
 
       send('claude:permission-request', panelId, {
         type: 'permission-request',
@@ -192,6 +305,7 @@ async function startNewQuery(
     cwd: config.cwd,
     includePartialMessages: true,
     canUseTool,
+    spawnClaudeCodeProcess: getSpawnClaudeCodeProcess(config.docker),
   }
 
   if (config.maxTurns) queryOptions.maxTurns = config.maxTurns
@@ -382,7 +496,7 @@ export function respondToPermission(panelId: string, toolUseId: string, allowed:
   session.pendingPermissions.delete(toolUseId)
 
   if (allowed) {
-    pending.resolve({ behavior: 'allow' })
+    pending.resolve({ behavior: 'allow', updatedInput: pending.input })
   } else {
     pending.resolve({ behavior: 'deny', message: 'User denied permission' })
   }
