@@ -5,6 +5,7 @@ import { TerminalView } from '~/components/terminal/terminal-view'
 import { BrowserView } from '~/components/browser/browser-view'
 import { ClaudeView } from '~/components/claude/claude-view'
 import { TodoView } from '~/components/todo/todo-view'
+import { CommandsView } from '~/components/quick-commands/commands-view'
 import { PanelChooser } from './panel-chooser'
 import { SplitView } from './split-view'
 
@@ -20,6 +21,8 @@ interface PanelContainerProps {
   onSetPanelType: (panelId: string, type: 'terminal' | 'browser' | 'claude' | 'todo') => void
   onUrlChange: (panelId: string, url: string) => void
   onOpenUrl?: (panelId: string, url: string) => void
+  onSplitInCommandsTab?: (newPanel: LeafPanel) => void
+  onAddTab?: (name: string, panel: LeafPanel) => void
 }
 
 function LeafPanelView({
@@ -31,7 +34,9 @@ function LeafPanelView({
   active,
   onSetPanelType,
   onUrlChange,
-  onOpenUrl
+  onOpenUrl,
+  onSplitInCommandsTab,
+  onAddTab,
 }: {
   leaf: LeafPanel
   projectId: string
@@ -42,6 +47,8 @@ function LeafPanelView({
   onSetPanelType: (panelId: string, type: 'terminal' | 'browser' | 'claude' | 'todo') => void
   onUrlChange: (panelId: string, url: string) => void
   onOpenUrl?: (panelId: string, url: string) => void
+  onSplitInCommandsTab?: (newPanel: LeafPanel) => void
+  onAddTab?: (name: string, panel: LeafPanel) => void
 }) {
   const setFocusedPanel = useUIStore((s) => s.setFocusedPanel)
   const focusedPanelId = useUIStore((s) => s.focusedPanelId)
@@ -64,7 +71,17 @@ function LeafPanelView({
           projectId={leaf.id}
           shellId={leaf.shellId ?? defaultShellId}
           cwd={cwd}
+          initialCommand={leaf.initialCommand}
           onOpenUrl={onOpenUrl ? (url) => onOpenUrl(leaf.id, url) : undefined}
+        />
+      )}
+      {leaf.panelType === 'commands' && onSplitInCommandsTab && onAddTab && (
+        <CommandsView
+          projectId={projectId}
+          cwd={cwd}
+          defaultShellId={defaultShellId}
+          onSplitInCommandsTab={onSplitInCommandsTab}
+          onAddTab={onAddTab}
         />
       )}
       {leaf.panelType === 'browser' && (
@@ -103,7 +120,9 @@ export function PanelContainer({
   onSplitRatioChange,
   onSetPanelType,
   onUrlChange,
-  onOpenUrl
+  onOpenUrl,
+  onSplitInCommandsTab,
+  onAddTab,
 }: PanelContainerProps) {
   if (panel.kind === 'split') {
     return (
@@ -124,6 +143,8 @@ export function PanelContainer({
             onSetPanelType={onSetPanelType}
             onUrlChange={onUrlChange}
             onOpenUrl={onOpenUrl}
+            onSplitInCommandsTab={onSplitInCommandsTab}
+            onAddTab={onAddTab}
           />
         }
         second={
@@ -139,6 +160,8 @@ export function PanelContainer({
             onSetPanelType={onSetPanelType}
             onUrlChange={onUrlChange}
             onOpenUrl={onOpenUrl}
+            onSplitInCommandsTab={onSplitInCommandsTab}
+            onAddTab={onAddTab}
           />
         }
       />
@@ -156,6 +179,8 @@ export function PanelContainer({
       onSetPanelType={onSetPanelType}
       onUrlChange={onUrlChange}
       onOpenUrl={onOpenUrl}
+      onSplitInCommandsTab={onSplitInCommandsTab}
+      onAddTab={onAddTab}
     />
   )
 }

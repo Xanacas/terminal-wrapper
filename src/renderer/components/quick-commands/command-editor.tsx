@@ -231,6 +231,25 @@ function CommandForm({
           placeholder="npm run dev"
           className="rounded-md border border-border-bright/60 bg-bg-secondary px-3 py-2 text-[12px] font-mono text-text placeholder:text-text-dim/50 outline-none focus:border-accent/60"
         />
+        <div className="flex flex-wrap gap-x-3 gap-y-1 pt-1">
+          <span className="text-[10px] text-text-dim/60">Variables:</span>
+          {[
+            { var: '{{cwd}}', desc: 'Project directory' },
+            { var: '{{project}}', desc: 'Project name' },
+            { var: '{{home}}', desc: 'Home directory' },
+            { var: '{{branch}}', desc: 'Git branch' },
+          ].map((v) => (
+            <button
+              key={v.var}
+              type="button"
+              onClick={() => setCmd((prev) => prev + v.var)}
+              title={v.desc}
+              className="rounded bg-bg-tertiary px-1.5 py-0.5 font-mono text-[10px] text-text-dim transition-colors hover:bg-bg-hover hover:text-text-secondary"
+            >
+              {v.var}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex gap-4">

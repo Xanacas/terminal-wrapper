@@ -53,10 +53,11 @@ interface UseTerminalOptions {
   projectId: string
   shellId: string
   cwd: string
+  initialCommand?: string
   onOpenUrl?: (url: string) => void
 }
 
-export function useTerminal({ projectId, shellId, cwd, onOpenUrl }: UseTerminalOptions) {
+export function useTerminal({ projectId, shellId, cwd, initialCommand, onOpenUrl }: UseTerminalOptions) {
   const containerRef = useRef<HTMLDivElement>(null)
   const onOpenUrlRef = useRef(onOpenUrl)
   onOpenUrlRef.current = onOpenUrl
@@ -161,6 +162,14 @@ export function useTerminal({ projectId, shellId, cwd, onOpenUrl }: UseTerminalO
           terminal.write(cleaned)
         }
         ptyBuffer = []
+
+        // Inject initial command after shell is ready
+        if (initialCommand && !initialCommandInjected) {
+          initialCommandInjected = true
+          setTimeout(() => {
+            api.writeTerminal(projectId, initialCommand + '\n')
+          }, 100)
+        }
       }
 
       // Wire input → PTY
@@ -169,6 +178,7 @@ export function useTerminal({ projectId, shellId, cwd, onOpenUrl }: UseTerminalO
       })
 
       // Wire PTY output → terminal with buffering for session restore
+      let initialCommandInjected = false
       const removeDataListener = api.onTerminalData((id, data) => {
         if (id !== projectId) return
 
@@ -180,6 +190,13 @@ export function useTerminal({ projectId, shellId, cwd, onOpenUrl }: UseTerminalO
           flushTimer = setTimeout(flushBufferedOutput, 500)
         } else {
           terminal.write(data)
+          // Inject initial command on first output when not buffering
+          if (initialCommand && !initialCommandInjected && !buffering) {
+            initialCommandInjected = true
+            setTimeout(() => {
+              api.writeTerminal(projectId, initialCommand + '\n')
+            }, 100)
+          }
         }
       })
 
@@ -252,6 +269,7 @@ export function useTerminal({ projectId, shellId, cwd, onOpenUrl }: UseTerminalO
     return () => {
       observer.disconnect()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, shellId, cwd])
 
   const restart = useCallback(() => {
@@ -259,7 +277,20 @@ export function useTerminal({ projectId, shellId, cwd, onOpenUrl }: UseTerminalO
     if (!entry) return
     entry.terminal.clear()
     api.spawnTerminal(projectId, shellId, cwd, entry.terminal.cols, entry.terminal.rows)
-  }, [projectId, shellId, cwd])
+
+    // Re-inject initial command after shell starts
+    if (initialCommand) {
+      let injected = false
+      const removeListener = api.onTerminalData((id, _data) => {
+        if (id !== projectId || injected) return
+        injected = true
+        removeListener()
+        setTimeout(() => {
+          api.writeTerminal(projectId, initialCommand + '\n')
+        }, 100)
+      })
+    }
+  }, [projectId, shellId, cwd, initialCommand])
 
   return { containerRef, fit, restart }
 }

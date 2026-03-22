@@ -1,6 +1,6 @@
 // ---- Panel tree types ----
 
-export type PanelType = 'terminal' | 'browser' | 'claude' | 'todo' | 'empty'
+export type PanelType = 'terminal' | 'browser' | 'claude' | 'todo' | 'empty' | 'commands'
 
 export interface LeafPanel {
   id: string
@@ -9,6 +9,7 @@ export interface LeafPanel {
   shellId?: string
   url?: string
   claudeSessionId?: string
+  initialCommand?: string
 }
 
 export interface SplitPanel {
@@ -36,14 +37,15 @@ export function generateId() {
 
 export function createLeafPanel(
   panelType: PanelType,
-  opts?: { shellId?: string; url?: string }
+  opts?: { shellId?: string; url?: string; initialCommand?: string }
 ): LeafPanel {
   return {
     id: generateId(),
     kind: 'leaf',
     panelType,
     shellId: opts?.shellId,
-    url: opts?.url ?? 'https://google.com'
+    url: opts?.url ?? 'https://google.com',
+    initialCommand: opts?.initialCommand
   }
 }
 

@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from 'react'
+import { Component, useEffect, useMemo } from 'react'
+import type { ReactNode, ErrorInfo } from 'react'
 import { useAppStore } from '~/stores/app-store'
 import { useUIStore } from '~/stores/ui-store'
 import { useProjects } from '~/hooks/use-projects'
@@ -9,6 +10,27 @@ import { Workspace } from '~/components/workspace/workspace'
 import { CommandPalette } from '~/components/command-palette/command-palette'
 import { ProjectSwitcher } from '~/components/command-palette/project-switcher'
 import { ProjectSettings } from '~/components/project-settings/project-settings'
+import { CommandPopover } from '~/components/quick-commands/command-popover'
+import { CommandEditor } from '~/components/quick-commands/command-editor'
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error('React error boundary caught:', error, info) }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 24, color: '#ef4444', background: '#0c0c0e', height: '100%', fontFamily: 'monospace', fontSize: 13, overflow: 'auto' }}>
+          <h2 style={{ marginBottom: 12 }}>Something went wrong</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', color: '#e0e0e0' }}>{this.state.error.message}</pre>
+          <pre style={{ whiteSpace: 'pre-wrap', color: '#888', marginTop: 8, fontSize: 11 }}>{this.state.error.stack}</pre>
+          <button onClick={() => this.setState({ error: null })} style={{ marginTop: 16, padding: '6px 16px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: 6, cursor: 'pointer' }}>Try Again</button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 export function App() {
   const init = useAppStore((s) => s.init)
@@ -142,12 +164,16 @@ export function App() {
   }
 
   return (
-    <div className="flex h-full bg-bg">
-      <Sidebar />
-      <Workspace />
-      <CommandPalette />
-      <ProjectSwitcher />
-      <ProjectSettings />
-    </div>
+    <ErrorBoundary>
+      <div className="flex h-full bg-bg">
+        <Sidebar />
+        <Workspace />
+        <CommandPalette />
+        <ProjectSwitcher />
+        <ProjectSettings />
+        <CommandPopover />
+        <CommandEditor />
+      </div>
+    </ErrorBoundary>
   )
 }

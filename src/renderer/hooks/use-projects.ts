@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { useAppStore } from '~/stores/app-store'
-import type { Project, Thread, TodoItem } from '~/stores/app-store'
+import type { Project, Thread, TodoItem, QuickCommand } from '~/stores/app-store'
 import { destroyTerminal } from '~/hooks/use-terminal'
 import {
   generateId,
@@ -149,14 +149,16 @@ export function useProjects() {
       const project = getProject(projectId)
       if (!project) return
 
-      const panel = createLeafPanel('empty')
-      const tab = createTab('New Tab', panel)
+      // Commands tab is always the first tab
+      const commandsPanel = createLeafPanel('commands')
+      const commandsTab = createTab('Commands', commandsPanel)
+
       const threadId = generateId()
       const thread: Thread = {
         id: threadId,
         name: name ?? `Thread ${project.threads.length + 1}`,
-        tabs: [tab],
-        activeTabId: tab.id
+        tabs: [commandsTab],
+        activeTabId: commandsTab.id
       }
 
       useUIStore.getState().recordThreadFocus(projectId, threadId)
@@ -182,14 +184,14 @@ export function useProjects() {
       const remaining = project.threads.filter((t) => t.id !== threadId)
       if (remaining.length === 0) {
         // Create a fresh default thread instead of deleting the project
-        const panel = createLeafPanel('empty')
-        const tab = createTab('New Tab', panel)
+        const commandsPanel = createLeafPanel('commands')
+        const commandsTab = createTab('Commands', commandsPanel)
         const newThreadId = generateId()
         const newThread: Thread = {
           id: newThreadId,
           name: 'Thread 1',
-          tabs: [tab],
-          activeTabId: tab.id
+          tabs: [commandsTab],
+          activeTabId: commandsTab.id
         }
         await storeUpdateProject(projectId, { threads: [newThread], activeThreadId: newThreadId })
         return
@@ -299,7 +301,10 @@ export function useProjects() {
       const thread = project.threads.find((t) => t.id === project.activeThreadId)
       if (!thread) return
 
+      // Prevent closing the commands tab (first tab with commands panel)
       const tab = thread.tabs.find((t) => t.id === tabId)
+      if (tab?.panel.kind === 'leaf' && tab.panel.panelType === 'commands') return
+
       if (tab) {
         for (const leaf of collectLeafPanels(tab.panel)) {
           if (leaf.panelType === 'terminal') {
@@ -528,6 +533,66 @@ export function useProjects() {
     [getProject, storeUpdateProject]
   )
 
+  // ---- Quick command operations ----
+
+  const addQuickCommand = useCallback(
+    async (projectId: string | null, command: QuickCommand) => {
+      if (projectId) {
+        const project = getProject(projectId)
+        if (!project) return
+        await storeUpdateProject(projectId, {
+          quickCommands: [...(project.quickCommands ?? []), command]
+        })
+      } else {
+        const state = useAppStore.getState()
+        await api.dispatch('setState', {
+          quickCommands: [...(state.quickCommands ?? []), command]
+        } as unknown as Record<string, unknown>)
+      }
+    },
+    [getProject, storeUpdateProject]
+  )
+
+  const updateQuickCommand = useCallback(
+    async (projectId: string | null, commandId: string, updates: Partial<QuickCommand>) => {
+      if (projectId) {
+        const project = getProject(projectId)
+        if (!project) return
+        await storeUpdateProject(projectId, {
+          quickCommands: (project.quickCommands ?? []).map((c) =>
+            c.id === commandId ? { ...c, ...updates } : c
+          )
+        })
+      } else {
+        const state = useAppStore.getState()
+        await api.dispatch('setState', {
+          quickCommands: (state.quickCommands ?? []).map((c: QuickCommand) =>
+            c.id === commandId ? { ...c, ...updates } : c
+          )
+        } as unknown as Record<string, unknown>)
+      }
+    },
+    [getProject, storeUpdateProject]
+  )
+
+  const deleteQuickCommand = useCallback(
+    async (projectId: string | null, commandId: string) => {
+      if (projectId) {
+        const project = getProject(projectId)
+        if (!project) return
+        await storeUpdateProject(projectId, {
+          quickCommands: (project.quickCommands ?? []).filter((c) => c.id !== commandId)
+        })
+      } else {
+        const state = useAppStore.getState()
+        await api.dispatch('setState', {
+          quickCommands: (state.quickCommands ?? []).filter((c: QuickCommand) => c.id !== commandId)
+        } as unknown as Record<string, unknown>)
+      }
+    },
+    [getProject, storeUpdateProject]
+  )
+
   return {
     projects,
     activeProjectId,
@@ -560,5 +625,9 @@ export function useProjects() {
     toggleTodo,
     deleteTodo,
     updateTodoText,
+    // Quick command ops
+    addQuickCommand,
+    updateQuickCommand,
+    deleteQuickCommand,
   }
 }

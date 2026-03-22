@@ -5,6 +5,7 @@ import { useUIStore } from '~/stores/ui-store'
 import { useQuickCommandStore } from '~/stores/quick-command-store'
 import { generateId, createLeafPanel } from '~/lib/panel-utils'
 import type { LeafPanel } from '~/lib/panel-utils'
+import { api } from '~/lib/ipc'
 
 const COMMAND_ICONS: Record<string, React.ReactNode> = {
   play: (
@@ -62,21 +63,41 @@ export function CommandsView({
   const [commitMessage, setCommitMessage] = useState('')
   const [commitMode, setCommitMode] = useState<'commit' | 'commit-push' | null>(null)
   const commitInputRef = useRef<HTMLInputElement>(null)
+  const [pkgScripts, setPkgScripts] = useState<Record<string, string>>({})
+  const [homeDir, setHomeDir] = useState('')
+  const [gitBranch, setGitBranch] = useState('')
 
   useEffect(() => {
     if (commitMode) commitInputRef.current?.focus()
   }, [commitMode])
 
+  useEffect(() => {
+    api.getPackageScripts(cwd).then(setPkgScripts)
+    api.getHomeDir().then(setHomeDir)
+    api.getGitBranch(cwd).then(setGitBranch)
+  }, [cwd])
+
+  const resolveVars = useCallback(
+    (command: string) =>
+      command
+        .replace(/\{\{cwd\}\}/g, cwd)
+        .replace(/\{\{project\}\}/g, project?.name ?? '')
+        .replace(/\{\{home\}\}/g, homeDir)
+        .replace(/\{\{branch\}\}/g, gitBranch),
+    [cwd, project?.name, homeDir, gitBranch]
+  )
+
   const executeCommand = useCallback(
     (cmd: QuickCommand) => {
       const cmdCwd = cmd.cwdOverride || cwd
       const cmdShell = cmd.shellIdOverride || defaultShellId
+      const resolved = resolveVars(cmd.command)
 
       if (cmd.executionMode === 'popover') {
         openPopover({
           id: generateId(),
           commandId: cmd.id,
-          commandStr: cmd.command,
+          commandStr: resolved,
           cwd: cmdCwd,
           shellId: cmdShell,
           autoDismiss: cmd.autoDismiss ?? false,
@@ -84,18 +105,18 @@ export function CommandsView({
       } else if (cmd.executionMode === 'panel') {
         const panel = createLeafPanel('terminal', {
           shellId: cmdShell,
-          initialCommand: cmd.command,
+          initialCommand: resolved,
         })
         onSplitInCommandsTab(panel)
       } else if (cmd.executionMode === 'tab') {
         const panel = createLeafPanel('terminal', {
           shellId: cmdShell,
-          initialCommand: cmd.command,
+          initialCommand: resolved,
         })
         onAddTab(cmd.name, panel)
       }
     },
-    [cwd, defaultShellId, openPopover, onSplitInCommandsTab, onAddTab]
+    [cwd, defaultShellId, resolveVars, openPopover, onSplitInCommandsTab, onAddTab]
   )
 
   const handleGitCommit = useCallback(
@@ -120,6 +141,53 @@ export function CommandsView({
     },
     [commitMessage, cwd, defaultShellId, openPopover]
   )
+
+  const [scriptModes, setScriptModes] = useState<Record<string, 'popover' | 'panel' | 'tab'>>({})
+
+  const getScriptMode = useCallback(
+    (name: string) => scriptModes[name] ?? 'popover',
+    [scriptModes]
+  )
+
+  const setScriptMode = useCallback(
+    (name: string, mode: 'popover' | 'panel' | 'tab') => {
+      setScriptModes((prev) => ({ ...prev, [name]: mode }))
+    },
+    []
+  )
+
+  const runPkgScript = useCallback(
+    (name: string, modeOverride?: 'popover' | 'panel' | 'tab') => {
+      const mode = modeOverride ?? scriptModes[name] ?? 'popover'
+      const commandStr = `npm run ${name}`
+
+      if (mode === 'popover') {
+        openPopover({
+          id: generateId(),
+          commandId: `__pkg-${name}`,
+          commandStr,
+          cwd,
+          shellId: defaultShellId,
+          autoDismiss: false,
+        })
+      } else if (mode === 'panel') {
+        const panel = createLeafPanel('terminal', {
+          shellId: defaultShellId,
+          initialCommand: commandStr,
+        })
+        onSplitInCommandsTab(panel)
+      } else if (mode === 'tab') {
+        const panel = createLeafPanel('terminal', {
+          shellId: defaultShellId,
+          initialCommand: commandStr,
+        })
+        onAddTab(name, panel)
+      }
+    },
+    [scriptModes, cwd, defaultShellId, openPopover, onSplitInCommandsTab, onAddTab]
+  )
+
+  const scriptEntries = Object.entries(pkgScripts)
 
   const allCommands = [
     ...globalCommands.map((c) => ({ ...c, scope: 'global' as const })),
@@ -194,6 +262,70 @@ export function CommandsView({
           )}
         </div>
       </div>
+
+      {/* Package.json Scripts */}
+      {scriptEntries.length > 0 && (
+        <div className="mb-6">
+          <h3 className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-text-dim">
+            package.json Scripts
+          </h3>
+          <div className="flex max-w-[600px] flex-col gap-1">
+            {scriptEntries.map(([name, cmd]) => {
+              const mode = getScriptMode(name)
+              return (
+                <div
+                  key={name}
+                  className="group flex items-center gap-3 rounded-lg border border-border-bright/40 bg-bg-secondary/80 px-3 py-2 transition-all hover:border-border-bright/60"
+                >
+                  {/* Run button */}
+                  <button
+                    onClick={() => runPkgScript(name)}
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-bg-tertiary text-text-dim transition-colors hover:bg-accent/15 hover:text-accent"
+                    title={`Run ${name}`}
+                  >
+                    {COMMAND_ICONS.play}
+                  </button>
+
+                  {/* Name & command */}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[12px] font-medium text-text-secondary">
+                      {name}
+                    </div>
+                    <div className="truncate text-[10px] text-text-dim">
+                      {cmd}
+                    </div>
+                  </div>
+
+                  {/* Execution mode radios */}
+                  <div className="flex shrink-0 items-center gap-3">
+                    {(['popover', 'panel', 'tab'] as const).map((m) => (
+                      <label
+                        key={m}
+                        className="flex cursor-pointer items-center gap-1.5"
+                        title={m === 'popover' ? 'Popover' : m === 'panel' ? 'New Panel' : 'New Tab'}
+                        onClick={() => setScriptMode(name, m)}
+                      >
+                        <span className={`flex h-3.5 w-3.5 items-center justify-center rounded-full border transition-colors ${
+                          mode === m ? 'border-accent' : 'border-text-dim/40'
+                        }`}>
+                          {mode === m && (
+                            <span className="h-2 w-2 rounded-full bg-accent" />
+                          )}
+                        </span>
+                        <span className={`text-[10px] select-none ${
+                          mode === m ? 'text-text-secondary' : 'text-text-dim'
+                        }`}>
+                          {m === 'popover' ? 'Popover' : m === 'panel' ? 'Panel' : 'Tab'}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Commands Section */}
       <div className="mb-4 flex items-center justify-between">

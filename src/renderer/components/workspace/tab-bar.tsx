@@ -158,6 +158,7 @@ export function TabBar({ tabs, activeTabId, onSwitch, onClose, onRename, onAdd }
         {tabs.map((tab, index) => {
           const isActive = tab.id === activeTabId
           const nextIsActive = index < tabs.length - 1 && tabs[index + 1]?.id === activeTabId
+          const isCommandsTab = tab.panel.kind === 'leaf' && tab.panel.panelType === 'commands'
           return (
             <div
               key={tab.id}
@@ -175,10 +176,14 @@ export function TabBar({ tabs, activeTabId, onSwitch, onClose, onRename, onAdd }
               )}
               <button
                 onClick={() => onSwitch(tab.id)}
-                onDoubleClick={() => setEditingId(tab.id)}
-                className="flex h-full items-center px-4 text-[12px] transition-all duration-150"
+                onDoubleClick={isCommandsTab ? undefined : () => setEditingId(tab.id)}
+                className={`flex h-full items-center text-[12px] transition-all duration-150 ${isCommandsTab ? 'px-3' : 'px-4'}`}
               >
-                {editingId === tab.id ? (
+                {isCommandsTab ? (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className="text-current">
+                    <path d="M6 4l14 8-14 8V4z" fill="currentColor" />
+                  </svg>
+                ) : editingId === tab.id ? (
                   <input
                     ref={inputRef}
                     defaultValue={tab.name}
@@ -197,7 +202,7 @@ export function TabBar({ tabs, activeTabId, onSwitch, onClose, onRename, onAdd }
                   </>
                 )}
               </button>
-              {tabs.length > 1 && (
+              {tabs.length > 1 && !isCommandsTab && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onClose(tab.id) }}
                   className="mr-2 flex h-[18px] w-[18px] items-center justify-center rounded text-text-dim opacity-0 transition-all duration-150 hover:bg-bg-hover hover:text-text-secondary group-hover:opacity-100"

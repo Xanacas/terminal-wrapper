@@ -6,6 +6,9 @@ interface UIStore {
   projectSwitcherOpen: boolean
   projectSettingsId: string | null
   projectOverviewId: string | null
+  commandEditorOpen: boolean
+  commandEditorProjectId: string | null
+  commandEditorCommandId: string | null
   // "projectId:threadId" keys, most-recently-focused first
   threadFocusOrder: string[]
 
@@ -19,6 +22,8 @@ interface UIStore {
   openProjectOverview: (projectId: string) => void
   closeProjectOverview: () => void
   toggleProjectOverview: (projectId: string) => void
+  openCommandEditor: (projectId: string | null, commandId?: string | null) => void
+  closeCommandEditor: () => void
   closeAllOverlays: () => void
   recordThreadFocus: (projectId: string, threadId: string) => void
 }
@@ -29,6 +34,9 @@ export const useUIStore = create<UIStore>((set, get) => ({
   projectSwitcherOpen: false,
   projectSettingsId: null,
   projectOverviewId: null,
+  commandEditorOpen: false,
+  commandEditorProjectId: null,
+  commandEditorCommandId: null,
   threadFocusOrder: [],
 
   setFocusedPanel: (id) => set({ focusedPanelId: id }),
@@ -57,8 +65,14 @@ export const useUIStore = create<UIStore>((set, get) => ({
     set({ projectOverviewId: current === projectId ? null : projectId })
   },
 
+  openCommandEditor: (projectId, commandId) =>
+    set({ commandEditorOpen: true, commandEditorProjectId: projectId ?? null, commandEditorCommandId: commandId ?? null }),
+
+  closeCommandEditor: () =>
+    set({ commandEditorOpen: false, commandEditorProjectId: null, commandEditorCommandId: null }),
+
   closeAllOverlays: () =>
-    set({ commandPaletteOpen: false, projectSwitcherOpen: false, projectSettingsId: null, projectOverviewId: null }),
+    set({ commandPaletteOpen: false, projectSwitcherOpen: false, projectSettingsId: null, projectOverviewId: null, commandEditorOpen: false, commandEditorProjectId: null, commandEditorCommandId: null }),
 
   recordThreadFocus: (projectId, threadId) => {
     const key = `${projectId}:${threadId}`

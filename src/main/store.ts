@@ -9,7 +9,7 @@ const defaultShellId = isWin ? 'pwsh' : 'zsh'
 
 // ---- Panel tree types (mirrored from renderer) ----
 
-export type PanelType = 'terminal' | 'browser' | 'claude' | 'todo' | 'empty'
+export type PanelType = 'terminal' | 'browser' | 'claude' | 'todo' | 'empty' | 'commands'
 
 export interface TodoItem {
   id: string
@@ -26,6 +26,18 @@ export interface LeafPanel {
   shellId?: string
   url?: string
   claudeSessionId?: string
+  initialCommand?: string
+}
+
+export interface QuickCommand {
+  id: string
+  name: string
+  command: string
+  icon?: 'play' | 'build' | 'test' | 'deploy' | 'script'
+  executionMode: 'popover' | 'panel' | 'tab'
+  autoDismiss?: boolean
+  cwdOverride?: string
+  shellIdOverride?: string
 }
 
 export interface SplitPanel {
@@ -76,6 +88,7 @@ export interface Project {
     disallowedTools?: string[]
   }
   todos?: TodoItem[]
+  quickCommands?: QuickCommand[]
 }
 
 export interface AppState {
@@ -83,6 +96,7 @@ export interface AppState {
   activeProjectId: string | null
   windowBounds: { x: number; y: number; width: number; height: number } | null
   isMaximized: boolean
+  quickCommands?: QuickCommand[]
 }
 
 const defaultState: AppState = {
@@ -111,12 +125,33 @@ function migrateProjects(raw: unknown[]): Project[] {
 
     // Already new format (has threads)
     if (p.threads && Array.isArray(p.threads)) {
-      return p as unknown as Project
+      const project = p as unknown as Project
+      // Migrate: ensure every thread has a commands tab as its first tab
+      for (const thread of project.threads) {
+        const hasCommandsTab = thread.tabs.some(
+          (t) => t.panel && (t.panel as LeafPanel).kind === 'leaf' && (t.panel as LeafPanel).panelType === 'commands'
+        )
+        if (!hasCommandsTab) {
+          const commandsTab: Tab = {
+            id: generateId(),
+            name: 'Commands',
+            panel: { id: generateId(), kind: 'leaf', panelType: 'commands' }
+          }
+          thread.tabs.unshift(commandsTab)
+          // If active tab was the first tab, keep it; otherwise leave activeTabId unchanged
+        }
+      }
+      return project
     }
 
     // Previous format (has tabs[] directly on project — the "flat" format)
     if (p.tabs && Array.isArray(p.tabs)) {
       const threadId = generateId()
+      const commandsTab: Tab = {
+        id: generateId(),
+        name: 'Commands',
+        panel: { id: generateId(), kind: 'leaf', panelType: 'commands' }
+      }
       return {
         id: p.id as string,
         name: p.name as string,
@@ -127,7 +162,7 @@ function migrateProjects(raw: unknown[]): Project[] {
           {
             id: threadId,
             name: 'Thread 1',
-            tabs: p.tabs as Tab[],
+            tabs: [commandsTab, ...(p.tabs as Tab[])],
             activeTabId: (p.activeTabId as string) ?? ''
           }
         ],
@@ -160,6 +195,7 @@ function migrateProjects(raw: unknown[]): Project[] {
 
     const tabId = generateId()
     const threadId = generateId()
+    const commandsTabId = generateId()
     return {
       id: p.id as string,
       name: p.name as string,
@@ -170,7 +206,10 @@ function migrateProjects(raw: unknown[]): Project[] {
         {
           id: threadId,
           name: 'Thread 1',
-          tabs: [{ id: tabId, name: 'Tab 1', panel: rootPanel }],
+          tabs: [
+            { id: commandsTabId, name: 'Commands', panel: { id: generateId(), kind: 'leaf', panelType: 'commands' } },
+            { id: tabId, name: 'Tab 1', panel: rootPanel }
+          ],
           activeTabId: tabId
         }
       ],

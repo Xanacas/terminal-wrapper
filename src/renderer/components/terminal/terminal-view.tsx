@@ -6,11 +6,12 @@ interface TerminalViewProps {
   projectId: string
   shellId: string
   cwd: string
+  initialCommand?: string
   onOpenUrl?: (url: string) => void
 }
 
-export function TerminalView({ projectId, shellId, cwd, onOpenUrl }: TerminalViewProps) {
-  const { containerRef, restart } = useTerminal({ projectId, shellId, cwd, onOpenUrl })
+export function TerminalView({ projectId, shellId, cwd, initialCommand, onOpenUrl }: TerminalViewProps) {
+  const { containerRef, restart } = useTerminal({ projectId, shellId, cwd, initialCommand, onOpenUrl })
   const [exited, setExited] = useState(false)
 
   useEffect(() => {
