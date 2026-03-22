@@ -7,6 +7,7 @@ import { detectShells } from './terminal/shell-detector'
 import * as browserManager from './browser/browser-manager'
 import * as store from './store'
 import * as claudeSessionManager from './claude/claude-session-manager'
+import * as logger from './logger'
 
 export function registerIpcHandlers(): void {
   // ---- System ----
@@ -310,6 +311,19 @@ export function registerIpcHandlers(): void {
     } catch {
       return []
     }
+  })
+
+  // ---- Logging ----
+  ipcMain.handle('logging:get-enabled', () => logger.isEnabled())
+
+  ipcMain.handle('logging:set-enabled', (_event, enabled: boolean) => {
+    logger.setEnabled(enabled)
+    return logger.isEnabled()
+  })
+
+  ipcMain.handle('logging:open-folder', () => {
+    logger.openLogFolder()
+    return { ok: true }
   })
 
   // ---- URL ----

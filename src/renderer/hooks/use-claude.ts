@@ -222,7 +222,14 @@ export function useClaude(panelId: string, cwd: string) {
     a.setStatus(panelId, s.config.permissionMode === 'plan' ? 'planning' : 'running')
 
     if (!s.sessionId) {
-      await api.createClaudeSession(panelId, s.config as unknown as Record<string, unknown>)
+      const project = useAppStore.getState().getActiveProject()
+      const thread = project?.threads.find((t) => t.id === project.activeThreadId)
+      const sessionConfig = {
+        ...(s.config as unknown as Record<string, unknown>),
+        projectName: project?.name ?? 'Unknown',
+        threadName: thread?.name ?? 'Unknown',
+      }
+      await api.createClaudeSession(panelId, sessionConfig)
     }
 
     await api.sendClaudeMessage(panelId, text, images)

@@ -1,4 +1,5 @@
 import { ProjectList } from './project-list'
+import { LoggingToggle } from './logging-toggle'
 import { useProjects } from '~/hooks/use-projects'
 
 export function Sidebar() {
@@ -32,6 +33,11 @@ export function Sidebar() {
         </div>
         {/* Bottom gradient fade */}
         <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-8" style={{ background: 'linear-gradient(to top, var(--color-bg-secondary), transparent)' }} />
+      </div>
+
+      {/* Bottom controls */}
+      <div className="shrink-0" style={{ borderTop: '1px solid var(--color-border)' }}>
+        <LoggingToggle />
       </div>
     </div>
   )

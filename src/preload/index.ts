@@ -163,6 +163,11 @@ const api = {
     return () => ipcRenderer.removeListener('claude:error', handler)
   },
 
+  // Logging
+  getLoggingEnabled: (): Promise<boolean> => ipcRenderer.invoke('logging:get-enabled'),
+  setLoggingEnabled: (enabled: boolean): Promise<boolean> => ipcRenderer.invoke('logging:set-enabled', enabled),
+  openLogFolder: () => ipcRenderer.invoke('logging:open-folder'),
+
   // URL
   openExternal: (url: string) => ipcRenderer.send('url:open-external', url)
 }

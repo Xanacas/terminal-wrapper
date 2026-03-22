@@ -6,10 +6,12 @@ import { killAll } from './terminal/pty-manager'
 import { destroyAll } from './browser/browser-manager'
 import { setWebContents, destroyAll as destroyAllClaude } from './claude/claude-session-manager'
 import { matchShortcut } from './shortcuts'
+import { initLogger, disposeLogger } from './logger'
 
 app.whenReady().then(() => {
   loadState()
   registerIpcHandlers()
+  initLogger()
 
   // Remove native menu bar
   Menu.setApplicationMenu(null)
@@ -63,5 +65,6 @@ app.on('window-all-closed', () => {
   killAll()
   destroyAll()
   destroyAllClaude()
+  disposeLogger()
   app.quit()
 })

@@ -2,6 +2,7 @@ import { spawn } from 'child_process'
 import { join } from 'path'
 import { app, type WebContents } from 'electron'
 import type { ClaudeSessionConfig, ClaudeSessionSummary, DockerTarget } from './types'
+import * as logger from '../logger'
 
 interface SpawnOpts {
   command: string
@@ -153,10 +154,14 @@ function send(channel: string, ...args: unknown[]) {
 
 export async function createSession(
   panelId: string,
-  config: Partial<ClaudeSessionConfig> & { cwd: string }
+  config: Partial<ClaudeSessionConfig> & { cwd: string; projectName?: string; threadName?: string }
 ) {
   if (sessions.has(panelId)) {
     destroySession(panelId)
+  }
+
+  if (config.projectName || config.threadName) {
+    logger.registerPanelContext(panelId, config.projectName ?? 'Unknown', config.threadName ?? 'Unknown')
   }
 
   const session: ClaudeSession = {
@@ -186,6 +191,7 @@ export async function createSession(
   }
 
   sessions.set(panelId, session)
+  logger.logSessionCreated(panelId, { model: session.config.model, permissionMode: session.config.permissionMode, cwd: session.config.cwd })
   return { sessionId: panelId }
 }
 
@@ -230,6 +236,8 @@ export async function sendMessage(
 ) {
   const session = sessions.get(panelId)
   if (!session) throw new Error(`No session for panel ${panelId}`)
+
+  logger.logUserMessage(panelId, text)
 
   // If a query is already running, stream the new message into it
   if (session.activeQuery) {
@@ -286,6 +294,8 @@ async function startNewQuery(
         ts: Date.now(),
       })
 
+      logger.logPermissionRequest(panelId, toolName, options.toolUseID, input)
+
       options.signal.addEventListener(
         'abort',
         () => {
@@ -341,6 +351,7 @@ async function startNewQuery(
 async function processQuery(panelId: string, session: ClaudeSession) {
   let sentTextLength = 0
   const sentToolUseIds = new Set<string>()
+  let accumulatedAssistantText = ''
 
   try {
     for await (const message of session.activeQuery!) {
@@ -377,6 +388,8 @@ async function processQuery(panelId: string, session: ClaudeSession) {
                 input: block.input,
                 ts: Date.now(),
               })
+
+              logger.logToolUse(panelId, block.name as string, toolId, block.input)
             }
           }
         }
@@ -390,7 +403,13 @@ async function processQuery(panelId: string, session: ClaudeSession) {
           })
           sentTextLength = textSoFar.length
         }
+        accumulatedAssistantText = textSoFar
       } else if (msg.type === 'user') {
+        // Log the full assistant text from previous turn
+        if (accumulatedAssistantText) {
+          logger.logAssistantText(panelId, accumulatedAssistantText)
+          accumulatedAssistantText = ''
+        }
         // Reset text tracking for new assistant turn
         sentTextLength = 0
         sentToolUseIds.clear()
@@ -420,6 +439,8 @@ async function processQuery(panelId: string, session: ClaudeSession) {
                 isError: block.is_error === true,
                 ts: Date.now(),
               })
+
+              logger.logToolResult(panelId, (block.tool_use_id ?? '') as string, output, block.is_error === true)
             }
           }
         }
@@ -442,7 +463,14 @@ async function processQuery(panelId: string, session: ClaudeSession) {
           outputTokens: session.outputTokens,
           ts: Date.now(),
         })
+
+        logger.logSessionMeta(panelId, { model: session.config.model, costUsd: session.costUsd, inputTokens: session.inputTokens, outputTokens: session.outputTokens })
       }
+    }
+
+    // Log any remaining assistant text
+    if (accumulatedAssistantText) {
+      logger.logAssistantText(panelId, accumulatedAssistantText)
     }
 
     // Query completed normally
@@ -454,6 +482,8 @@ async function processQuery(panelId: string, session: ClaudeSession) {
       outputTokens: session.outputTokens,
       ts: Date.now(),
     })
+
+    logger.logSessionEnded(panelId, 'completed')
   } catch (err) {
     const isAbort =
       err instanceof Error &&
@@ -468,6 +498,8 @@ async function processQuery(panelId: string, session: ClaudeSession) {
       outputTokens: session.outputTokens,
       ts: Date.now(),
     })
+
+    logger.logSessionEnded(panelId, isAbort ? 'interrupted' : 'error', isAbort ? undefined : err instanceof Error ? err.message : String(err))
   } finally {
     session.activeQuery = null
     session.abortController = null
@@ -492,6 +524,8 @@ export function respondToPermission(panelId: string, toolUseId: string, allowed:
 
   const pending = session.pendingPermissions.get(toolUseId)
   if (!pending) return
+
+  logger.logPermissionResponse(panelId, toolUseId, allowed)
 
   session.pendingPermissions.delete(toolUseId)
 
@@ -533,6 +567,7 @@ export function resumeSession(panelId: string, sessionId: string) {
 }
 
 export function destroySession(panelId: string) {
+  logger.unregisterPanelContext(panelId)
   const session = sessions.get(panelId)
   if (!session) return
 

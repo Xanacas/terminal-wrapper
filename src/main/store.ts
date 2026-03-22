@@ -97,6 +97,7 @@ export interface AppState {
   windowBounds: { x: number; y: number; width: number; height: number } | null
   isMaximized: boolean
   quickCommands?: QuickCommand[]
+  detailedLogging?: boolean
 }
 
 const defaultState: AppState = {
