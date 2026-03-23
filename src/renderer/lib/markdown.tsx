@@ -1,4 +1,5 @@
 import { Fragment, type ReactNode } from 'react'
+import { HighlightedCode } from '~/components/ui/code-block'
 
 interface MarkdownOptions {
   onLinkClick?: (url: string) => void
@@ -276,9 +277,9 @@ export function renderMarkdown(text: string, options?: MarkdownOptions): ReactNo
                   </span>
                 </div>
               )}
-              <pre className="overflow-x-auto p-3 text-[12px] font-mono leading-[1.6] text-text-secondary">
+              <pre className="overflow-x-auto p-3 text-[12px] font-mono leading-[1.6] text-text-secondary [&_.line]:block">
                 <code className={block.language ? `language-${block.language}` : undefined}>
-                  {block.content}
+                  <HighlightedCode code={block.content} language={block.language} />
                 </code>
               </pre>
             </div>

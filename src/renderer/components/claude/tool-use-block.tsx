@@ -1,6 +1,21 @@
 import { useState } from 'react'
 import { toolIcons, getToolSummary, renderOutput } from '~/lib/tool-utils'
+import { HighlightedCode } from '~/components/ui/code-block'
 import type { BackgroundTask } from '~/stores/claude-store'
+
+function langFromPath(filePath: string) {
+  const ext = filePath.split('.').pop()?.toLowerCase()
+  const map: Record<string, string> = {
+    ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx',
+    py: 'python', rb: 'ruby', go: 'go', rs: 'rust',
+    java: 'java', c: 'c', cpp: 'cpp', h: 'c', hpp: 'cpp',
+    css: 'css', html: 'html', json: 'json', yaml: 'yaml', yml: 'yaml',
+    toml: 'toml', sql: 'sql', sh: 'bash', bash: 'bash',
+    md: 'markdown', xml: 'xml', php: 'php', swift: 'swift',
+    kt: 'kotlin', scala: 'scala', prisma: 'prisma',
+  }
+  return ext ? map[ext] : undefined
+}
 
 interface ToolUseBlockProps {
   toolName: string
@@ -25,12 +40,13 @@ function renderSpecializedInput(toolName: string, input: unknown) {
         <div>
           <div className="mb-1.5 text-[10px] font-medium uppercase tracking-wider text-text-dim">Command</div>
           <pre className="overflow-x-auto rounded-md bg-bg-tertiary p-2.5 text-[11px] font-mono leading-[1.6] text-text-secondary">
-            {inp.command as string}
+            <HighlightedCode code={inp.command as string} language="bash" />
           </pre>
         </div>
       )
     case 'Read':
-    case 'Write':
+    case 'Write': {
+      const fileLang = inp.file_path ? langFromPath(String(inp.file_path)) : undefined
       return (
         <div className="space-y-2">
           <div>
@@ -39,11 +55,12 @@ function renderSpecializedInput(toolName: string, input: unknown) {
           </div>
           {inp.content ? (
             <pre className="max-h-[200px] overflow-auto rounded-md bg-bg-tertiary p-2.5 text-[11px] font-mono leading-[1.6] text-text-secondary">
-              {String(inp.content)}
+              <HighlightedCode code={String(inp.content)} language={fileLang} />
             </pre>
           ) : null}
         </div>
       )
+    }
     case 'Edit':
       return (
         <div className="space-y-2">
