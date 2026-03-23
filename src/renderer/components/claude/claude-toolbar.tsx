@@ -18,6 +18,8 @@ interface ClaudeToolbarProps {
   accountInfo: AccountInfo | null
   fastModeState: FastModeState | undefined
   agents: AgentInfo[]
+  activeTeammateCount?: number
+  totalTeammateCount?: number
   onModelChange: (model: string) => void
   onPermissionModeChange: (mode: PermissionMode) => void
   onEffortChange: (effort: EffortLevel) => void
@@ -25,6 +27,7 @@ interface ClaudeToolbarProps {
   onSettingsClick: () => void
   onHistoryClick: () => void
   onNewSession: () => void
+  onAgentsClick?: () => void
 }
 
 const permissionModes: Array<{ id: PermissionMode; label: string; desc: string }> = [
@@ -66,6 +69,8 @@ export function ClaudeToolbar({
   accountInfo,
   fastModeState,
   agents,
+  activeTeammateCount,
+  totalTeammateCount,
   onModelChange,
   onPermissionModeChange,
   onEffortChange,
@@ -73,6 +78,7 @@ export function ClaudeToolbar({
   onSettingsClick,
   onHistoryClick,
   onNewSession,
+  onAgentsClick,
 }: ClaudeToolbarProps) {
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [permMenuOpen, setPermMenuOpen] = useState(false)
@@ -244,14 +250,29 @@ export function ClaudeToolbar({
         </div>
       )}
 
+      {/* Teammate indicator */}
+      {(totalTeammateCount ?? 0) > 0 && (
+        <span className="flex items-center gap-1 text-[10px] text-text-dim/70">
+          {(activeTeammateCount ?? 0) > 0 && (
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-info animate-pulse" />
+          )}
+          {activeTeammateCount ?? 0}/{totalTeammateCount} teammates
+        </span>
+      )}
+
       {/* Agents info */}
       {agents.length > 0 && (
-        <span
-          className="text-[10px] text-text-dim/60"
-          title={agents.map((a) => `${a.name}: ${a.description}`).join('\n')}
+        <button
+          onClick={onAgentsClick}
+          className="flex items-center gap-1 rounded-md px-1.5 py-[3px] text-[10px] text-text-dim/60 transition-all duration-150 hover:bg-bg-hover hover:text-text-secondary"
+          title="View available agents"
         >
+          <svg width="10" height="10" viewBox="0 0 16 16" fill="none" className="shrink-0">
+            <circle cx="8" cy="5" r="2" stroke="currentColor" strokeWidth="1.2" />
+            <path d="M4 13c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+          </svg>
           {agents.length} agents
-        </span>
+        </button>
       )}
 
       {/* Settings */}

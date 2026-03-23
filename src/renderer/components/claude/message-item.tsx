@@ -1,4 +1,4 @@
-import type { ClaudeMessage } from '~/stores/claude-store'
+import type { ClaudeMessage, BackgroundTask } from '~/stores/claude-store'
 import { renderMarkdown } from '~/lib/markdown'
 import { ToolUseBlock } from './tool-use-block'
 import { PermissionPrompt } from './permission-prompt'
@@ -7,6 +7,8 @@ import { getMessageActions } from './message-actions'
 
 interface MessageItemProps {
   message: ClaudeMessage
+  pairedResult?: ClaudeMessage
+  agentTask?: BackgroundTask
   onLinkClick?: (url: string) => void
   onApprovePermission?: (toolUseId: string) => void
   onApproveWithAnswers?: (toolUseId: string, answers: Record<string, string>) => void
@@ -19,6 +21,8 @@ interface MessageItemProps {
 
 export function MessageItem({
   message,
+  pairedResult,
+  agentTask,
   onLinkClick,
   onApprovePermission,
   onApproveWithAnswers,
@@ -116,6 +120,9 @@ export function MessageItem({
             toolName={message.toolName ?? 'Unknown'}
             toolUseId={message.toolUseId ?? ''}
             input={message.toolInput}
+            output={pairedResult?.toolOutput}
+            isError={pairedResult?.isError}
+            agentTask={agentTask}
           />
         </div>
       )

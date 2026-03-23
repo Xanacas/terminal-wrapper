@@ -87,31 +87,76 @@ export function MessageList({
           </div>
         )}
 
-        {messages.map((msg) => (
-          <MessageItem
-            key={msg.id}
-            message={msg}
-            onLinkClick={onLinkClick}
-            onApprovePermission={onApprovePermission}
-            onApproveWithAnswers={onApproveWithAnswers}
-            onDenyPermission={onDenyPermission}
-            onAlwaysAllowPermission={onAlwaysAllowPermission}
-            isPendingPermission={msg.toolUseId ? pendingIds.has(msg.toolUseId) : false}
-            onFork={onFork}
-            onRewind={onRewind}
-          />
-        ))}
+        {(() => {
+          // Group tool-use + tool-result by toolUseId so they render together
+          const resultByToolUseId = new Map<string, typeof messages[number]>()
+          const consumedResultIds = new Set<string>()
+          for (const msg of messages) {
+            if (msg.type === 'tool-result' && msg.toolUseId) {
+              resultByToolUseId.set(msg.toolUseId, msg)
+            }
+          }
 
-        {/* Background tasks */}
-        {backgroundTasks && backgroundTasks.size > 0 && (
-          <div className="px-5 py-2 space-y-2">
-            {[...backgroundTasks.values()]
-              .sort((a, b) => a.startedAt - b.startedAt)
-              .map((task) => (
-                <BackgroundTaskCard key={task.taskId} task={task} onStop={onStopTask} />
-              ))}
-          </div>
-        )}
+          // Index background tasks by their spawning toolUseId for agent tool blocks
+          const taskBySpawnToolUseId = new Map<string, NonNullable<typeof backgroundTasks> extends Map<string, infer V> ? V : never>()
+          if (backgroundTasks) {
+            for (const task of backgroundTasks.values()) {
+              if (task.toolUseId && task.isTeammate) {
+                taskBySpawnToolUseId.set(task.toolUseId, task)
+              }
+            }
+          }
+
+          return messages.map((msg) => {
+            // Skip tool-result messages — they're rendered inline with their tool-use
+            if (msg.type === 'tool-result' && msg.toolUseId && consumedResultIds.has(msg.toolUseId)) {
+              return null
+            }
+
+            // For tool-use messages, mark the matching result as consumed
+            if (msg.type === 'tool-use' && msg.toolUseId) {
+              const matchedResult = resultByToolUseId.get(msg.toolUseId)
+              if (matchedResult) consumedResultIds.add(msg.toolUseId)
+            }
+
+            // Find the agent task for Agent/SendMessage tool-use blocks
+            const agentTask = msg.type === 'tool-use' && msg.toolUseId
+              ? taskBySpawnToolUseId.get(msg.toolUseId)
+              : undefined
+
+            return (
+              <MessageItem
+                key={msg.id}
+                message={msg}
+                pairedResult={msg.type === 'tool-use' && msg.toolUseId ? resultByToolUseId.get(msg.toolUseId) : undefined}
+                agentTask={agentTask}
+                onLinkClick={onLinkClick}
+                onApprovePermission={onApprovePermission}
+                onApproveWithAnswers={onApproveWithAnswers}
+                onDenyPermission={onDenyPermission}
+                onAlwaysAllowPermission={onAlwaysAllowPermission}
+                isPendingPermission={msg.toolUseId ? pendingIds.has(msg.toolUseId) : false}
+                onFork={onFork}
+                onRewind={onRewind}
+              />
+            )
+          })
+        })()}
+
+        {/* Background tasks (excludes teammate tasks — those show in AgentTeamsPanel) */}
+        {backgroundTasks && backgroundTasks.size > 0 && (() => {
+          const nonTeamTasks = [...backgroundTasks.values()].filter((t) => !t.isTeammate)
+          if (nonTeamTasks.length === 0) return null
+          return (
+            <div className="px-5 py-2 space-y-2">
+              {nonTeamTasks
+                .sort((a, b) => a.startedAt - b.startedAt)
+                .map((task) => (
+                  <BackgroundTaskCard key={task.taskId} task={task} onStop={onStopTask} />
+                ))}
+            </div>
+          )
+        })()}
 
         {/* Streaming indicator */}
         {isStreaming && currentStreamText && (

@@ -7,34 +7,114 @@ import { updateLeafInTree, collectLeafPanels } from '~/lib/panel-utils'
 import type { ClaudePanelConfig, ClaudeMessage, PermissionMode } from '~/stores/claude-store'
 
 const TEAMMATE_TASK_TYPES = new Set(['in_process_teammate', 'external_teammate', 'tmux_teammate'])
-function isTeammateTask(taskType?: string) {
-  if (!taskType) return false
-  return TEAMMATE_TASK_TYPES.has(taskType) || taskType.includes('teammate') || taskType.includes('subagent')
+function isTeammateTask(taskType?: string, hasAgentMeta?: boolean) {
+  // If we have correlated agent metadata from an Agent/SendMessage tool call, it's a teammate
+  if (hasAgentMeta) return true
+  if (taskType) {
+    if (TEAMMATE_TASK_TYPES.has(taskType)
+      || taskType.includes('teammate')
+      || taskType.includes('subagent')
+      || taskType.includes('agent')) return true
+  }
+  return false
+}
+
+// Parse agent name from summary like: Agent "TypeScript type check" completed
+function parseAgentNameFromSummary(summary?: string) {
+  if (!summary) return undefined
+  const match = summary.match(/^Agent "(.+?)"/)
+  return match?.[1]
+}
+
+// SDK-internal XML tags that should be stripped from displayed text during session restore
+const SDK_INTERNAL_XML_RE = /<(?:task-notification|task-started|task-progress|teammate-message|teammate-idle|shutdown-approved|teammate-terminated)\b[^]*?<\/(?:task-notification|task-started|task-progress|teammate-message|teammate-idle|shutdown-approved|teammate-terminated)>/g
+const SDK_TRANSCRIPT_RE = /Full transcript available at: \S+/g
+
+function stripSdkInternalXml(text: string) {
+  return text
+    .replace(SDK_INTERNAL_XML_RE, '')
+    .replace(SDK_TRANSCRIPT_RE, '')
+    .trim()
 }
 
 export function mapHistoryToMessages(history: unknown[]): ClaudeMessage[] {
-  return (history as Array<Record<string, unknown>>).map((m) => {
+  const result: ClaudeMessage[] = []
+
+  for (const m of history as Array<Record<string, unknown>>) {
     const msgType = m.type as string
+    // Skip system/result messages during restore — they're not user-visible
+    if (msgType === 'system' || msgType === 'result') continue
+
+    const sdkUuid = (m.uuid as string) || undefined
     const content = m.message as Record<string, unknown> | undefined
-    let text = ''
-    if (content?.content) {
-      if (typeof content.content === 'string') {
-        text = content.content
-      } else if (Array.isArray(content.content)) {
-        text = (content.content as Array<Record<string, unknown>>)
-          .filter((b) => b.type === 'text')
-          .map((b) => b.text as string)
-          .join('\n')
+    const contentBlocks = content?.content
+
+    if (typeof contentBlocks === 'string') {
+      const text = stripSdkInternalXml(contentBlocks)
+      if (text) {
+        result.push({ id: sdkUuid ?? globalThis.crypto.randomUUID(), type: msgType as 'user' | 'assistant', content: text, sdkUuid, ts: Date.now() })
+      }
+      continue
+    }
+
+    if (!Array.isArray(contentBlocks)) continue
+
+    // Process each content block — text, tool_use, tool_result
+    let textParts: string[] = []
+
+    const flushText = () => {
+      const joined = stripSdkInternalXml(textParts.join('\n'))
+      if (joined) {
+        result.push({ id: sdkUuid ?? globalThis.crypto.randomUUID(), type: msgType as 'user' | 'assistant', content: joined, sdkUuid, ts: Date.now() })
+      }
+      textParts = []
+    }
+
+    for (const block of contentBlocks as Array<Record<string, unknown>>) {
+      if (block.type === 'text') {
+        textParts.push(block.text as string)
+      } else if (block.type === 'tool_use') {
+        flushText()
+        result.push({
+          id: (block.id as string) ?? globalThis.crypto.randomUUID(),
+          type: 'tool-use',
+          content: '',
+          toolUseId: block.id as string,
+          toolName: block.name as string,
+          toolInput: block.input,
+          sdkUuid,
+          ts: Date.now(),
+        })
+      } else if (block.type === 'tool_result') {
+        flushText()
+        let output: string
+        const blockContent = block.content
+        if (typeof blockContent === 'string') {
+          output = blockContent
+        } else if (Array.isArray(blockContent)) {
+          output = (blockContent as Array<Record<string, unknown>>)
+            .map((c) => (c.type === 'text' ? (c.text as string) : JSON.stringify(c)))
+            .join('\n')
+        } else {
+          output = blockContent ? JSON.stringify(blockContent) : ''
+        }
+        result.push({
+          id: globalThis.crypto.randomUUID(),
+          type: 'tool-result',
+          content: '',
+          toolUseId: (block.tool_use_id ?? '') as string,
+          toolOutput: output,
+          isError: block.is_error === true,
+          sdkUuid,
+          ts: Date.now(),
+        })
       }
     }
-    return {
-      id: (m.uuid as string) ?? globalThis.crypto.randomUUID(),
-      type: msgType as 'user' | 'assistant',
-      content: text,
-      sdkUuid: (m.uuid as string) || undefined,
-      ts: Date.now(),
-    }
-  })
+
+    flushText()
+  }
+
+  return result
 }
 
 export type ForkDestination = 'tab' | 'split-right' | 'split-down' | 'new-thread'
@@ -180,7 +260,7 @@ export function useClaude(panelId: string, cwd: string) {
       const store = useClaudeStore.getState()
       store.initPanel(panelId)
       // Load cached init result for instant availability
-      api.getCachedClaudeInitResult().then((cached) => {
+      api.getCachedClaudeInitResult(cwd).then((cached) => {
         if (cached) {
           useClaudeStore.getState().setInitResult(panelId, cached as import('../../main/claude/types').InitializationResult)
         }
@@ -217,8 +297,6 @@ export function useClaude(panelId: string, cwd: string) {
       onMessage: (_id, msg) => {
         const m = msg as Record<string, unknown>
         const a = actions()
-        if (m.type === 'init-result') console.log('[claude-ui] GOT init-result message!')
-
         switch (m.type) {
           case 'text': {
             if (hasStreamDeltasRef.current) {
@@ -256,16 +334,22 @@ export function useClaude(panelId: string, cwd: string) {
               hasStreamDeltasRef.current = false
             }
             const toolName = m.toolName as string
+            const toolUseId = m.toolUseId as string
             a.addMessage(panelId, {
               id: globalThis.crypto.randomUUID(),
               type: 'tool-use',
               content: '',
-              toolUseId: m.toolUseId as string,
+              toolUseId,
               toolName,
               toolInput: m.input,
               sdkUuid: m.sdkUuid as string | undefined,
               ts: m.ts as number,
             })
+            // If this tool belongs to an agent, add it to the agent's tool calls
+            const ownerTaskId = a.getPanel(panelId).toolUseToTaskId.get(toolUseId)
+            if (ownerTaskId) {
+              a.addToolCallToTask(panelId, ownerTaskId, { toolUseId, toolName, input: m.input, ts: m.ts as number })
+            }
             if (toolName === 'AskUserQuestion') {
               a.setStatus(panelId, 'action-needed')
             } else {
@@ -274,17 +358,27 @@ export function useClaude(panelId: string, cwd: string) {
             }
             break
           }
-          case 'tool-result':
+          case 'tool-result': {
+            const resultToolUseId = m.toolUseId as string
             a.addMessage(panelId, {
               id: globalThis.crypto.randomUUID(),
               type: 'tool-result',
               content: '',
-              toolUseId: m.toolUseId as string,
+              toolUseId: resultToolUseId,
               toolOutput: m.output as string,
               isError: m.isError as boolean,
               sdkUuid: m.sdkUuid as string | undefined,
               ts: m.ts as number,
             })
+            // Add result to the agent's tool call if it belongs to one
+            const resultOwnerTaskId = a.getPanel(panelId).toolUseToTaskId.get(resultToolUseId)
+            if (resultOwnerTaskId) {
+              a.addToolResultToTask(panelId, resultOwnerTaskId, resultToolUseId, m.output as string, m.isError as boolean)
+            }
+            break
+          }
+          case 'tool-agent-link':
+            a.linkToolToTask(panelId, m.toolUseId as string, m.taskId as string)
             break
           case 'session-meta':
             a.setSessionMeta(panelId, {
@@ -298,13 +392,17 @@ export function useClaude(panelId: string, cwd: string) {
             persistClaudeSessionId(panelId, m.sessionId as string)
             break
           case 'init-result':
-            console.log('[claude-ui] Received init-result:', JSON.stringify(m.data).slice(0, 200))
             a.setInitResult(panelId, m.data as import('../../main/claude/types').InitializationResult)
             break
           case 'task-event': {
             const subtype = m.subtype as string
             if (subtype === 'task-started') {
               const taskType = m.taskType as string | undefined
+              const agentName = m.agentName as string | undefined
+              const agentType = m.agentType as string | undefined
+              const teamName = m.teamName as string | undefined
+              const hasAgentMeta = !!(agentName || agentType || teamName)
+              console.log('[agent-teams] task-started:', { taskId: m.taskId, taskType, agentName, agentType, teamName, hasAgentMeta, toolUseId: m.toolUseId })
               a.startTask(panelId, {
                 taskId: m.taskId as string,
                 description: m.description as string,
@@ -312,27 +410,45 @@ export function useClaude(panelId: string, cwd: string) {
                 prompt: m.prompt as string | undefined,
                 toolUseId: m.toolUseId as string | undefined,
                 ts: m.ts as number,
-                agentName: m.agentName as string | undefined,
-                agentType: m.agentType as string | undefined,
-                teamName: m.teamName as string | undefined,
-                isTeammate: isTeammateTask(taskType),
+                agentName,
+                agentType,
+                teamName,
+                isTeammate: isTeammateTask(taskType, hasAgentMeta),
               })
             } else if (subtype === 'task-progress') {
+              const progressSummary = m.summary as string | undefined
+              // Check if we can retroactively detect this as a teammate from summary
+              const existingTask = a.getPanel(panelId).backgroundTasks.get(m.taskId as string)
+              if (existingTask && !existingTask.isTeammate) {
+                const parsedName = parseAgentNameFromSummary(progressSummary)
+                if (parsedName) {
+                  a.markTaskAsTeammate(panelId, m.taskId as string, parsedName)
+                }
+              }
               a.updateTaskProgress(panelId, m.taskId as string, {
                 description: m.description as string,
-                summary: m.summary as string | undefined,
+                summary: progressSummary,
                 lastToolName: m.lastToolName as string | undefined,
                 usage: m.usage as { totalTokens: number; toolUses: number; durationMs: number } | undefined,
               })
             } else if (subtype === 'task-notification') {
+              const summary = m.summary as string
+              // If task wasn't detected as teammate on start, check the summary
+              const existing = a.getPanel(panelId).backgroundTasks.get(m.taskId as string)
+              if (existing && !existing.isTeammate) {
+                const parsedName = parseAgentNameFromSummary(summary)
+                if (parsedName) {
+                  a.markTaskAsTeammate(panelId, m.taskId as string, parsedName)
+                }
+              }
               a.completeTask(panelId, m.taskId as string, {
                 status: m.status as 'completed' | 'failed' | 'stopped',
-                summary: m.summary as string,
+                summary,
                 outputFile: m.outputFile as string | undefined,
                 usage: m.usage as { totalTokens: number; toolUses: number; durationMs: number } | undefined,
               })
               if (document.hidden) {
-                new Notification('Task finished', { body: m.summary as string })
+                new Notification('Task finished', { body: summary })
               }
             }
             break

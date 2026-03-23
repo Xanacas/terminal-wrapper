@@ -302,8 +302,8 @@ export function registerIpcHandlers(): void {
     return claudeSessionManager.getSessionState(panelId)
   })
 
-  ipcMain.handle('claude:get-cached-init-result', () => {
-    return claudeSessionManager.getCachedInitResult()
+  ipcMain.handle('claude:get-cached-init-result', (_event, cwd?: string, docker?: { container: string }) => {
+    return claudeSessionManager.getCachedInitResult(cwd, docker)
   })
 
   ipcMain.handle('claude:resume-session', (_event, panelId: string, sessionId: string) => {

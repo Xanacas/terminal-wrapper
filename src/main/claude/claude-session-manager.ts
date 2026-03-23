@@ -1,28 +1,48 @@
 import { spawn } from 'child_process'
 import { join } from 'path'
-import { readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'fs'
 import { app, type WebContents } from 'electron'
 import type { ClaudeSessionConfig, ClaudeSessionSummary, DockerTarget, InitializationResult, TeamToolMeta } from './types'
 import { isTeamTool, extractTeamToolMeta } from './types'
 import * as logger from '../logger'
 
-// ---- InitResult cache ----
+// ---- InitResult cache (per cwd + docker) ----
 
-function getInitCachePath(): string {
-  return join(app.getPath('userData'), 'claude-init-cache.json')
+function getCacheKey(cwd: string, docker?: { container: string }): string {
+  const key = docker ? `${cwd}::docker:${docker.container}` : cwd
+  // Simple hash to create a safe filename
+  let hash = 0
+  for (let i = 0; i < key.length; i++) {
+    hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0
+  }
+  return `claude-init-${Math.abs(hash).toString(36)}.json`
 }
 
-function saveInitResultCache(data: InitializationResult): void {
+function getInitCacheDir(): string {
+  return join(app.getPath('userData'), 'claude-init-cache')
+}
+
+function saveInitResultCache(data: InitializationResult, cwd: string, docker?: { container: string }): void {
   try {
-    const dir = app.getPath('userData')
+    const dir = getInitCacheDir()
     mkdirSync(dir, { recursive: true })
-    writeFileSync(getInitCachePath(), JSON.stringify(data), 'utf-8')
+    writeFileSync(join(dir, getCacheKey(cwd, docker)), JSON.stringify(data), 'utf-8')
   } catch { /* best-effort */ }
 }
 
-export function getCachedInitResult(): InitializationResult | null {
+export function getCachedInitResult(cwd?: string, docker?: { container: string }): InitializationResult | null {
   try {
-    const raw = readFileSync(getInitCachePath(), 'utf-8')
+    if (cwd) {
+      const raw = readFileSync(join(getInitCacheDir(), getCacheKey(cwd, docker)), 'utf-8')
+      return JSON.parse(raw) as InitializationResult
+    }
+    // Fallback: return any cached file (for panels without a cwd yet)
+    const dir = getInitCacheDir()
+    const files = readdirSync(dir).filter((f) => f.startsWith('claude-init-') && f.endsWith('.json'))
+    if (files.length === 0) return null
+    // Return most recently modified
+    const sorted = files.map((f) => ({ f, mtime: statSync(join(dir, f)).mtimeMs })).sort((a, b) => b.mtime - a.mtime)
+    const raw = readFileSync(join(dir, sorted[0].f), 'utf-8')
     return JSON.parse(raw) as InitializationResult
   } catch {
     return null
@@ -145,6 +165,8 @@ type SDKQuery = AsyncGenerator<Record<string, unknown>, void> & {
   streamInput(stream: AsyncIterable<Record<string, unknown>>): Promise<void>
   stopTask(taskId: string): Promise<void>
   initializationResult(): Promise<Record<string, unknown> | undefined>
+  setPermissionMode(mode: string): void
+  setModel(model?: string): void
   rewindFiles?(userMessageId: string, options?: { dryRun?: boolean }): Promise<{
     canRewind: boolean
     error?: string
@@ -154,17 +176,18 @@ type SDKQuery = AsyncGenerator<Record<string, unknown>, void> & {
   }>
 }
 
-export async function fetchInitializationResult(query: SDKQuery): Promise<import('./types').InitializationResult | null> {
+export async function fetchInitializationResult(query: SDKQuery, cacheContext?: { cwd: string; docker?: { container: string } }): Promise<InitializationResult | null> {
   try {
     const data = await query.initializationResult()
-    debugLog('[claude] initializationResult raw type:', typeof data, 'keys:', data ? Object.keys(data as object).join(',') : 'none')
     if (!data) {
-      debugLog('[claude] initializationResult() returned falsy:', data)
+      debugLog('[claude] initializationResult() returned falsy')
       return null
     }
     const result = data as unknown as InitializationResult
-    debugLog('[claude] initializationResult parsed. models:', result.models?.length, 'commands:', result.commands?.length, 'account:', JSON.stringify(result.account))
-    saveInitResultCache(result)
+    debugLog('[claude] initializationResult parsed. models:', result.models?.length, 'commands:', result.commands?.length)
+    if (cacheContext) {
+      saveInitResultCache(result, cacheContext.cwd, cacheContext.docker)
+    }
     return result
   } catch (err) {
     debugLog('[claude] initializationResult() failed:', String(err))
@@ -181,6 +204,12 @@ interface PermissionResolver {
   input: Record<string, unknown>
 }
 
+interface WarmQuery {
+  query: SDKQuery
+  abortController: AbortController // eslint-disable-line no-undef
+  drainPromise: Promise<void>
+}
+
 interface ClaudeSession {
   panelId: string
   config: ClaudeSessionConfig
@@ -192,6 +221,7 @@ interface ClaudeSession {
   outputTokens: number
   pendingPermissions: Map<string, PermissionResolver>
   teamToolMeta: Map<string, TeamToolMeta>
+  warmQuery?: WarmQuery
 }
 
 const sessions = new Map<string, ClaudeSession>()
@@ -248,7 +278,70 @@ export async function createSession(
 
   sessions.set(panelId, session)
   logger.logSessionCreated(panelId, { model: session.config.model, permissionMode: session.config.permissionMode, cwd: session.config.cwd })
+
+  // Start warm prefetch to get init data (models, commands, skills) before first message
+  if (session.config.cwd) {
+    prefetchInitData(panelId, session).catch((err) => {
+      debugLog(`[claude:${panelId}] prefetch failed:`, String(err))
+    })
+  }
+
   return { sessionId: panelId }
+}
+
+async function prefetchInitData(panelId: string, session: ClaudeSession) {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  const config = session.config
+
+  // Empty async iterable — process starts but no message is sent
+  async function* emptyStream(): AsyncGenerator<Record<string, unknown>, void> {
+    await new Promise(() => {}) // Block forever until abort
+  }
+
+  const abortController = new AbortController() // eslint-disable-line no-undef
+
+  const queryInstance = sdk.query({
+    prompt: emptyStream() as unknown as string,
+    options: {
+      abortController,
+      cwd: config.cwd,
+      model: config.model,
+      settingSources: ['user', 'project', 'local'],
+      spawnClaudeCodeProcess: getSpawnClaudeCodeProcess(config.docker),
+    },
+  }) as unknown as SDKQuery
+
+  // Must drain the generator to start the process
+  const drainPromise = (async () => {
+    try {
+      for await (const _msg of queryInstance) { /* drain */ }
+    } catch { /* expected when aborted */ }
+  })()
+
+  session.warmQuery = { query: queryInstance, abortController, drainPromise }
+
+  debugLog(`[claude:${panelId}] Prefetch started for cwd=${config.cwd}`)
+
+  const initData = await fetchInitializationResult(queryInstance, {
+    cwd: config.cwd,
+    docker: config.docker,
+  })
+
+  if (initData) {
+    debugLog(`[claude:${panelId}] Prefetch got ${initData.models?.length} models, ${initData.commands?.length} commands`)
+    send('claude:message', panelId, {
+      type: 'init-result',
+      data: initData,
+      ts: Date.now(),
+    })
+  }
+
+  // Close the warm query — it served its purpose (init data fetched and cached)
+  try {
+    abortController.abort()
+    await drainPromise
+  } catch { /* ignore */ }
+  session.warmQuery = undefined
 }
 
 function buildUserMessage(
@@ -424,13 +517,15 @@ async function processQuery(panelId: string, session: ClaudeSession) {
   const sentToolUseIds = new Set<string>()
   let accumulatedAssistantText = ''
   let currentAssistantUuid: string | undefined
+  // Maps tool_use_id → task_id for correlating tool calls with agents
+  const toolUseToTaskId = new Map<string, string>()
   let initResultFetched = false
 
   const tryFetchInitResult = () => {
     if (initResultFetched || !session.activeQuery) return
     initResultFetched = true
     debugLog(`[claude:${panelId}] Calling initializationResult()...`)
-    fetchInitializationResult(session.activeQuery).then((initData) => {
+    fetchInitializationResult(session.activeQuery, { cwd: session.config.cwd, docker: session.config.docker }).then((initData) => {
       debugLog(`[claude:${panelId}] initializationResult() returned:`, initData ? `${initData.models?.length ?? 0} models, ${initData.commands?.length ?? 0} commands` : 'null')
       if (initData) {
         debugLog(`[claude:${panelId}] About to send init-result IPC`)
@@ -497,7 +592,10 @@ async function processQuery(panelId: string, session: ClaudeSession) {
               const toolName = block.name as string
               if (isTeamTool(toolName)) {
                 const meta = extractTeamToolMeta(toolName, block.input as Record<string, unknown>)
-                if (meta) session.teamToolMeta.set(toolId, meta)
+                if (meta) {
+                  session.teamToolMeta.set(toolId, meta)
+                  debugLog(`[claude:${panelId}] Stored team meta for toolUseId=${toolId}: ${JSON.stringify(meta)}`)
+                }
               }
             }
           }
@@ -603,6 +701,7 @@ async function processQuery(panelId: string, session: ClaudeSession) {
 
           // Correlate task events with team metadata from the originating tool call
           const teamMeta = toolUseId ? session.teamToolMeta.get(toolUseId) : undefined
+          debugLog(`[claude:${panelId}] ${subtype}: taskId=${msg.task_id}, taskType=${msg.task_type}, toolUseId=${toolUseId}, teamMeta=${JSON.stringify(teamMeta)}, storedMetaKeys=[${[...session.teamToolMeta.keys()].join(',')}]`)
 
           send('claude:message', panelId, {
             type: 'task-event',
@@ -628,6 +727,20 @@ async function processQuery(panelId: string, session: ClaudeSession) {
             agentName: teamMeta?.agentName,
             agentType: teamMeta?.agentType,
             teamName: teamMeta?.teamName,
+          })
+        }
+      } else if (msg.type === 'tool_progress') {
+        // Track which tool calls belong to which task/agent
+        const tpToolUseId = msg.tool_use_id as string
+        const tpTaskId = msg.task_id as string | undefined
+        if (tpToolUseId && tpTaskId) {
+          toolUseToTaskId.set(tpToolUseId, tpTaskId)
+          send('claude:message', panelId, {
+            type: 'tool-agent-link',
+            toolUseId: tpToolUseId,
+            toolName: msg.tool_name as string,
+            taskId: tpTaskId,
+            ts: Date.now(),
           })
         }
       }
@@ -707,6 +820,22 @@ export function updateConfig(panelId: string, updates: Partial<ClaudeSessionConf
   const session = sessions.get(panelId)
   if (!session) return
   session.config = { ...session.config, ...updates }
+
+  // Apply runtime changes to the active query
+  if (session.activeQuery) {
+    try {
+      if (updates.permissionMode) {
+        session.activeQuery.setPermissionMode(updates.permissionMode)
+        debugLog(`[claude:${panelId}] setPermissionMode(${updates.permissionMode}) on active query`)
+      }
+      if (updates.model !== undefined) {
+        session.activeQuery.setModel(updates.model)
+        debugLog(`[claude:${panelId}] setModel(${updates.model}) on active query`)
+      }
+    } catch (err) {
+      debugLog(`[claude:${panelId}] Failed to apply runtime config:`, String(err))
+    }
+  }
 }
 
 export async function listPastSessions(cwd: string): Promise<ClaudeSessionSummary[]> {

@@ -31,6 +31,15 @@ export const STATUS_CONFIG: Record<ClaudeStatus, { label: string; color: string 
   'idle': null,
 }
 
+export interface AgentToolCall {
+  toolUseId: string
+  toolName: string
+  input?: unknown
+  output?: string
+  isError?: boolean
+  ts: number
+}
+
 export interface BackgroundTask {
   taskId: string
   description: string
@@ -49,6 +58,7 @@ export interface BackgroundTask {
   agentType?: string
   teamName?: string
   isTeammate?: boolean
+  toolCalls?: AgentToolCall[]
 }
 
 interface ClaudePanelConfig {
@@ -103,6 +113,7 @@ interface ClaudePanelState {
   restoreStatus: 'none' | 'restoring' | 'restored' | 'error'
   restoreError?: string
   backgroundTasks: Map<string, BackgroundTask>
+  toolUseToTaskId: Map<string, string>
   initResult: InitializationResult | null
 }
 
@@ -134,6 +145,7 @@ const defaultPanelState: ClaudePanelState = {
   restoreStatus: 'none' as const,
   restoreError: undefined,
   backgroundTasks: new Map(),
+  toolUseToTaskId: new Map(),
   initResult: null,
 }
 
@@ -160,6 +172,10 @@ interface ClaudeStore {
   startTask: (panelId: string, task: { taskId: string; description: string; taskType?: string; prompt?: string; toolUseId?: string; ts: number; agentName?: string; agentType?: string; teamName?: string; isTeammate?: boolean }) => void
   updateTaskProgress: (panelId: string, taskId: string, update: { description?: string; summary?: string; lastToolName?: string; usage?: BackgroundTask['usage'] }) => void
   completeTask: (panelId: string, taskId: string, result: { status: 'completed' | 'failed' | 'stopped'; summary: string; outputFile?: string; usage?: BackgroundTask['usage'] }) => void
+  markTaskAsTeammate: (panelId: string, taskId: string, agentName?: string) => void
+  linkToolToTask: (panelId: string, toolUseId: string, taskId: string) => void
+  addToolCallToTask: (panelId: string, taskId: string, toolCall: AgentToolCall) => void
+  addToolResultToTask: (panelId: string, taskId: string, toolUseId: string, output: string, isError?: boolean) => void
   setInitResult: (panelId: string, data: InitializationResult) => void
 }
 
@@ -305,6 +321,7 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
       pendingCwdChange: null,
       status: 'idle' as ClaudeStatus,
       backgroundTasks: new Map(),
+      toolUseToTaskId: new Map(),
       config: { ...state.config },
     }))
   },
@@ -372,6 +389,49 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
         usage: result.usage,
         completedAt: Date.now(),
       })
+      return { backgroundTasks }
+    })
+  },
+
+  markTaskAsTeammate: (panelId, taskId, agentName) => {
+    updatePanel(set, panelId, (state) => {
+      const existing = state.backgroundTasks.get(taskId)
+      if (!existing) return {}
+      const backgroundTasks = new Map(state.backgroundTasks)
+      backgroundTasks.set(taskId, { ...existing, isTeammate: true, agentName: agentName ?? existing.agentName })
+      return { backgroundTasks }
+    })
+  },
+
+  linkToolToTask: (panelId, toolUseId, taskId) => {
+    updatePanel(set, panelId, (state) => {
+      const toolUseToTaskId = new Map(state.toolUseToTaskId)
+      toolUseToTaskId.set(toolUseId, taskId)
+      return { toolUseToTaskId }
+    })
+  },
+
+  addToolCallToTask: (panelId, taskId, toolCall) => {
+    updatePanel(set, panelId, (state) => {
+      const existing = state.backgroundTasks.get(taskId)
+      if (!existing) return {}
+      // Avoid duplicates
+      if (existing.toolCalls?.some((tc) => tc.toolUseId === toolCall.toolUseId)) return {}
+      const backgroundTasks = new Map(state.backgroundTasks)
+      backgroundTasks.set(taskId, { ...existing, toolCalls: [...(existing.toolCalls ?? []), toolCall] })
+      return { backgroundTasks }
+    })
+  },
+
+  addToolResultToTask: (panelId, taskId, toolUseId, output, isError) => {
+    updatePanel(set, panelId, (state) => {
+      const existing = state.backgroundTasks.get(taskId)
+      if (!existing?.toolCalls) return {}
+      const backgroundTasks = new Map(state.backgroundTasks)
+      const toolCalls = existing.toolCalls.map((tc) =>
+        tc.toolUseId === toolUseId ? { ...tc, output, isError } : tc
+      )
+      backgroundTasks.set(taskId, { ...existing, toolCalls })
       return { backgroundTasks }
     })
   },

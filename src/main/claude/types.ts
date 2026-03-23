@@ -229,6 +229,14 @@ export interface ClaudeInitResultMessage {
   ts: number
 }
 
+export interface ClaudeToolAgentLink {
+  type: 'tool-agent-link'
+  toolUseId: string
+  toolName: string
+  taskId: string
+  ts: number
+}
+
 export type ClaudeIpcMessage =
   | ClaudeTextMessage
   | ClaudeStreamDelta
@@ -241,3 +249,4 @@ export type ClaudeIpcMessage =
   | ClaudeError
   | ClaudeTaskEvent
   | ClaudeInitResultMessage
+  | ClaudeToolAgentLink

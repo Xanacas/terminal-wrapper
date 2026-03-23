@@ -11,7 +11,9 @@ import { ChatInput } from './chat-input'
 import { ClaudeCwdPrompt } from './claude-cwd-prompt'
 import { ClaudeSettingsModal } from './claude-settings-modal'
 import { ClaudeSessionHistoryPanel } from './claude-session-history'
-import { getModelsForPanel, getEffortLevelsForModel, getSlashCommandsForPanel, getAccountInfoForPanel, getFastModeStateForPanel, getAgentsForPanel } from '~/stores/claude-store'
+import { getModelsForPanel, getEffortLevelsForModel, getSlashCommandsForPanel, getAccountInfoForPanel, getFastModeStateForPanel, getAgentsForPanel, deriveAgentTeamsState } from '~/stores/claude-store'
+import { AgentTeamsPanel } from './agent-teams-panel'
+import { AgentsModal } from './agents-modal'
 import type { EffortLevel, PermissionMode, ClaudePanelConfig, ClaudePanelState } from '~/stores/claude-store'
 
 interface ClaudeViewProps {
@@ -95,7 +97,6 @@ export function ClaudeView({ panelId, projectId, tabId, cwd, onOpenUrl }: Claude
 
   const hasCwd = Boolean(config.cwd)
 
-  console.log('[claude-view] initResult:', initResult ? `${initResult.models?.length} models, ${initResult.commands?.length} commands` : 'null')
   const panelForHelpers = useMemo(() => ({ initResult, config }) as ClaudePanelState, [initResult, config])
   const availableModels = useMemo(() => getModelsForPanel(panelForHelpers), [panelForHelpers])
   const availableEffortLevels = useMemo(() => getEffortLevelsForModel(panelForHelpers), [panelForHelpers])
@@ -103,9 +104,11 @@ export function ClaudeView({ panelId, projectId, tabId, cwd, onOpenUrl }: Claude
   const accountInfo = useMemo(() => getAccountInfoForPanel(panelForHelpers), [panelForHelpers])
   const fastModeState = useMemo(() => getFastModeStateForPanel(panelForHelpers), [panelForHelpers])
   const agents = useMemo(() => getAgentsForPanel(panelForHelpers), [panelForHelpers])
+  const teamsState = useMemo(() => deriveAgentTeamsState(backgroundTasks), [backgroundTasks])
 
   // Fork destination picker state
   const [forkState, setForkState] = useState<{ sdkUuid: string; x: number; y: number } | null>(null)
+  const [agentsModalOpen, setAgentsModalOpen] = useState(false)
   const forkMenuRef = useRef<HTMLDivElement>(null)
 
   const activeThreadDevContainer = useAppStore((s) => {
@@ -312,6 +315,8 @@ export function ClaudeView({ panelId, projectId, tabId, cwd, onOpenUrl }: Claude
         accountInfo={accountInfo}
         fastModeState={fastModeState}
         agents={agents}
+        activeTeammateCount={teamsState?.activeCount}
+        totalTeammateCount={teamsState?.totalCount}
         onModelChange={handleModelChange}
         onPermissionModeChange={handlePermissionModeChange}
         onEffortChange={handleEffortChange}
@@ -319,8 +324,13 @@ export function ClaudeView({ panelId, projectId, tabId, cwd, onOpenUrl }: Claude
         onSettingsClick={toggleSettings}
         onHistoryClick={toggleHistory}
         onNewSession={newSession}
+        onAgentsClick={() => setAgentsModalOpen(true)}
       />
       <div className="h-px w-full bg-gradient-to-r from-transparent via-border-bright/50 to-transparent" />
+
+      {teamsState && (
+        <AgentTeamsPanel teamsState={teamsState} onStopTask={stopTask} />
+      )}
 
       {historyOpen && (
         <ClaudeSessionHistoryPanel
@@ -415,6 +425,13 @@ export function ClaudeView({ panelId, projectId, tabId, cwd, onOpenUrl }: Claude
           config={config}
           onSave={handleSettingsSave}
           onClose={toggleSettings}
+        />
+      )}
+
+      {agentsModalOpen && (
+        <AgentsModal
+          agents={agents}
+          onClose={() => setAgentsModalOpen(false)}
         />
       )}
 

@@ -114,8 +114,76 @@ function renderTextBlock(text: string, options?: MarkdownOptions): ReactNode[] {
     listItems = []
   }
 
+  // Collect table rows for flushing
+  let tableRows: string[][] = []
+  let tableAlignments: Array<'left' | 'center' | 'right' | null> = []
+
+  const flushTable = () => {
+    if (tableRows.length === 0) return
+    const headerRow = tableRows[0]
+    const bodyRows = tableRows.slice(1)
+    elements.push(
+      <div key={key++} className="my-2 overflow-x-auto">
+        <table className="w-full border-collapse text-[12px] leading-[1.6]">
+          <thead>
+            <tr className="border-b border-border/40">
+              {headerRow.map((cell, ci) => (
+                <th
+                  key={ci}
+                  className="px-2.5 py-1.5 text-left text-[11px] font-semibold text-text-secondary"
+                  style={tableAlignments[ci] ? { textAlign: tableAlignments[ci]! } : undefined}
+                >
+                  {renderInline(cell.trim(), options)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {bodyRows.map((row, ri) => (
+              <tr key={ri} className="border-b border-border/20">
+                {row.map((cell, ci) => (
+                  <td
+                    key={ci}
+                    className="px-2.5 py-1.5 text-text"
+                    style={tableAlignments[ci] ? { textAlign: tableAlignments[ci]! } : undefined}
+                  >
+                    {renderInline(cell.trim(), options)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+    tableRows = []
+    tableAlignments = []
+  }
+
   for (const line of lines) {
     const trimmed = line.trim()
+
+    // Table row detection (line starts and ends with |)
+    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      const cells = trimmed.slice(1, -1).split('|')
+      // Check if this is a separator row (|---|---|)
+      if (cells.every((c) => /^\s*:?-+:?\s*$/.test(c))) {
+        // Parse alignments
+        tableAlignments = cells.map((c) => {
+          const t = c.trim()
+          if (t.startsWith(':') && t.endsWith(':')) return 'center'
+          if (t.endsWith(':')) return 'right'
+          if (t.startsWith(':')) return 'left'
+          return null
+        })
+        continue
+      }
+      tableRows.push(cells)
+      continue
+    }
+
+    // If we were collecting table rows, flush them
+    flushTable()
 
     // Horizontal rule
     if (/^-{3,}$/.test(trimmed) || /^\*{3,}$/.test(trimmed)) {
@@ -187,6 +255,7 @@ function renderTextBlock(text: string, options?: MarkdownOptions): ReactNode[] {
     }
   }
 
+  flushTable()
   flushList()
   return elements
 }
