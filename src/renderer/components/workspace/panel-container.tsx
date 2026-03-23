@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import type { Panel, LeafPanel } from '~/lib/panel-utils'
 import { useUIStore } from '~/stores/ui-store'
-import { TerminalView } from '~/components/terminal/terminal-view'
+import { TerminalView, type DockerTarget } from '~/components/terminal/terminal-view'
 import { BrowserView } from '~/components/browser/browser-view'
 import { ClaudeView } from '~/components/claude/claude-view'
 import { TodoView } from '~/components/todo/todo-view'
@@ -17,6 +17,7 @@ interface PanelContainerProps {
   cwd: string
   defaultShellId: string
   active: boolean
+  dockerTarget?: DockerTarget
   onSplitRatioChange: (splitId: string, ratio: number) => void
   onSetPanelType: (panelId: string, type: 'terminal' | 'browser' | 'claude' | 'todo') => void
   onUrlChange: (panelId: string, url: string) => void
@@ -28,10 +29,12 @@ interface PanelContainerProps {
 function LeafPanelView({
   leaf,
   projectId,
+  tabId,
   threadId,
   cwd,
   defaultShellId,
   active,
+  dockerTarget,
   onSetPanelType,
   onUrlChange,
   onOpenUrl,
@@ -40,10 +43,12 @@ function LeafPanelView({
 }: {
   leaf: LeafPanel
   projectId: string
+  tabId: string
   threadId: string
   cwd: string
   defaultShellId: string
   active: boolean
+  dockerTarget?: DockerTarget
   onSetPanelType: (panelId: string, type: 'terminal' | 'browser' | 'claude' | 'todo') => void
   onUrlChange: (panelId: string, url: string) => void
   onOpenUrl?: (panelId: string, url: string) => void
@@ -73,6 +78,7 @@ function LeafPanelView({
           cwd={cwd}
           initialCommand={leaf.initialCommand}
           onOpenUrl={onOpenUrl ? (url) => onOpenUrl(leaf.id, url) : undefined}
+          dockerTarget={dockerTarget}
         />
       )}
       {leaf.panelType === 'commands' && onSplitInCommandsTab && onAddTab && (
@@ -95,6 +101,8 @@ function LeafPanelView({
       {leaf.panelType === 'claude' && (
         <ClaudeView
           panelId={leaf.id}
+          projectId={projectId}
+          tabId={tabId}
           cwd={cwd}
           onOpenUrl={onOpenUrl ? (url) => onOpenUrl(leaf.id, url) : undefined}
         />
@@ -117,6 +125,7 @@ export function PanelContainer({
   cwd,
   defaultShellId,
   active,
+  dockerTarget,
   onSplitRatioChange,
   onSetPanelType,
   onUrlChange,
@@ -139,6 +148,7 @@ export function PanelContainer({
             cwd={cwd}
             defaultShellId={defaultShellId}
             active={active}
+            dockerTarget={dockerTarget}
             onSplitRatioChange={onSplitRatioChange}
             onSetPanelType={onSetPanelType}
             onUrlChange={onUrlChange}
@@ -156,6 +166,7 @@ export function PanelContainer({
             cwd={cwd}
             defaultShellId={defaultShellId}
             active={active}
+            dockerTarget={dockerTarget}
             onSplitRatioChange={onSplitRatioChange}
             onSetPanelType={onSetPanelType}
             onUrlChange={onUrlChange}
@@ -172,10 +183,12 @@ export function PanelContainer({
     <LeafPanelView
       leaf={panel}
       projectId={projectId}
+      tabId={tabId}
       threadId={threadId}
       cwd={cwd}
       defaultShellId={defaultShellId}
       active={active}
+      dockerTarget={dockerTarget}
       onSetPanelType={onSetPanelType}
       onUrlChange={onUrlChange}
       onOpenUrl={onOpenUrl}

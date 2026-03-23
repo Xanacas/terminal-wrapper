@@ -3,6 +3,7 @@ import { renderMarkdown } from '~/lib/markdown'
 import { ToolUseBlock } from './tool-use-block'
 import { PermissionPrompt } from './permission-prompt'
 import { AskUserQuestionPrompt, AskUserQuestionResolved } from './ask-user-question-prompt'
+import { getMessageActions } from './message-actions'
 
 interface MessageItemProps {
   message: ClaudeMessage
@@ -12,6 +13,8 @@ interface MessageItemProps {
   onDenyPermission?: (toolUseId: string) => void
   onAlwaysAllowPermission?: (toolUseId: string, toolName: string) => void
   isPendingPermission?: boolean
+  onFork?: (sdkUuid: string) => void
+  onRewind?: (sdkUuid: string) => void
 }
 
 export function MessageItem({
@@ -22,11 +25,15 @@ export function MessageItem({
   onDenyPermission,
   onAlwaysAllowPermission,
   isPendingPermission,
+  onFork,
+  onRewind,
 }: MessageItemProps) {
+  const actions = getMessageActions(message)
+
   switch (message.type) {
     case 'user':
       return (
-        <div className="flex justify-end px-4 py-1.5">
+        <div className="group relative flex justify-end px-4 py-1.5">
           <div className="max-w-[85%] rounded-xl rounded-br-[6px] bg-accent/10 px-3.5 py-2.5 text-[12.5px] leading-[1.6] text-text">
             {message.images && message.images.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-1.5">
@@ -42,15 +49,63 @@ export function MessageItem({
             )}
             {message.content}
           </div>
+          {actions.length > 0 && (
+            <div className="absolute right-2 top-1 hidden gap-1 group-hover:flex">
+              {actions.includes('fork') && (
+                <button
+                  onClick={() => onFork?.(message.sdkUuid!)}
+                  className="rounded-md bg-bg-secondary/80 p-1 text-text-dim backdrop-blur-sm transition-colors hover:bg-bg-hover hover:text-accent"
+                  title="Fork from here"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <circle cx="6" cy="2" r="1.2" stroke="currentColor" strokeWidth="1.2" />
+                    <circle cx="3" cy="10" r="1.2" stroke="currentColor" strokeWidth="1.2" />
+                    <circle cx="9" cy="10" r="1.2" stroke="currentColor" strokeWidth="1.2" />
+                    <path d="M6 3.2V6L3 8.8M6 6l3 2.8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                  </svg>
+                </button>
+              )}
+              {actions.includes('rewind') && (
+                <button
+                  onClick={() => onRewind?.(message.sdkUuid!)}
+                  className="rounded-md bg-bg-secondary/80 p-1 text-text-dim backdrop-blur-sm transition-colors hover:bg-bg-hover hover:text-warning"
+                  title="Rewind files to here"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <path d="M2 6h7M2 6l2.5-2.5M2 6l2.5 2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M10 3v6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )
 
     case 'assistant':
       return (
-        <div className="px-5 py-2">
+        <div className="group relative px-5 py-2">
           <div className="max-w-[95%]">
             {renderMarkdown(message.content, { onLinkClick })}
           </div>
+          {actions.length > 0 && (
+            <div className="absolute right-2 top-1 hidden gap-1 group-hover:flex">
+              {actions.includes('fork') && (
+                <button
+                  onClick={() => onFork?.(message.sdkUuid!)}
+                  className="rounded-md bg-bg-secondary/80 p-1 text-text-dim backdrop-blur-sm transition-colors hover:bg-bg-hover hover:text-accent"
+                  title="Fork from here"
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <circle cx="6" cy="2" r="1.2" stroke="currentColor" strokeWidth="1.2" />
+                    <circle cx="3" cy="10" r="1.2" stroke="currentColor" strokeWidth="1.2" />
+                    <circle cx="9" cy="10" r="1.2" stroke="currentColor" strokeWidth="1.2" />
+                    <path d="M6 3.2V6L3 8.8M6 6l3 2.8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )
 

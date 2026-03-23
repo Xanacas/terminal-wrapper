@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { InitializationResult, ModelInfo, SlashCommand, AgentInfo, AccountInfo, FastModeState, EffortLevel as EffortLevelType } from '../../main/claude/types'
 
 type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' | 'dontAsk'
 type EffortLevel = 'low' | 'medium' | 'high' | 'max'
@@ -30,6 +31,21 @@ export const STATUS_CONFIG: Record<ClaudeStatus, { label: string; color: string 
   'idle': null,
 }
 
+export interface BackgroundTask {
+  taskId: string
+  description: string
+  status: 'running' | 'completed' | 'failed' | 'stopped'
+  taskType?: string
+  prompt?: string
+  summary?: string
+  lastToolName?: string
+  usage?: { totalTokens: number; toolUses: number; durationMs: number }
+  outputFile?: string
+  toolUseId?: string
+  startedAt: number
+  completedAt?: number
+}
+
 interface ClaudePanelConfig {
   cwd: string
   model: string
@@ -53,6 +69,7 @@ interface ClaudeMessage {
   id: string
   type: 'user' | 'assistant' | 'tool-use' | 'tool-result' | 'permission-request' | 'system'
   content: string
+  sdkUuid?: string
   toolUseId?: string
   toolName?: string
   toolInput?: unknown
@@ -80,6 +97,8 @@ interface ClaudePanelState {
   status: ClaudeStatus
   restoreStatus: 'none' | 'restoring' | 'restored' | 'error'
   restoreError?: string
+  backgroundTasks: Map<string, BackgroundTask>
+  initResult: InitializationResult | null
 }
 
 const defaultConfig: ClaudePanelConfig = {
@@ -109,6 +128,8 @@ const defaultPanelState: ClaudePanelState = {
   status: 'idle' as ClaudeStatus,
   restoreStatus: 'none' as const,
   restoreError: undefined,
+  backgroundTasks: new Map(),
+  initResult: null,
 }
 
 interface ClaudeStore {
@@ -117,7 +138,7 @@ interface ClaudeStore {
   initPanel: (panelId: string) => void
   addMessage: (panelId: string, msg: ClaudeMessage) => void
   appendStreamDelta: (panelId: string, text: string) => void
-  endStream: (panelId: string, fullText: string) => void
+  endStream: (panelId: string, fullText: string, sdkUuid?: string) => void
   setStreaming: (panelId: string, streaming: boolean) => void
   addPermissionRequest: (panelId: string, req: { toolUseId: string; toolName: string; input: unknown; title?: string }) => void
   resolvePermissionRequest: (panelId: string, toolUseId: string) => void
@@ -131,6 +152,10 @@ interface ClaudeStore {
   setPendingCwdChange: (panelId: string, cwd: string | null) => void
   setRestoreStatus: (panelId: string, status: 'none' | 'restoring' | 'restored' | 'error', error?: string) => void
   removePanel: (panelId: string) => void
+  startTask: (panelId: string, task: { taskId: string; description: string; taskType?: string; prompt?: string; toolUseId?: string; ts: number }) => void
+  updateTaskProgress: (panelId: string, taskId: string, update: { description?: string; summary?: string; lastToolName?: string; usage?: BackgroundTask['usage'] }) => void
+  completeTask: (panelId: string, taskId: string, result: { status: 'completed' | 'failed' | 'stopped'; summary: string; outputFile?: string; usage?: BackgroundTask['usage'] }) => void
+  setInitResult: (panelId: string, data: InitializationResult) => void
 }
 
 const updatePanel = (
@@ -169,7 +194,7 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
     }))
   },
 
-  endStream: (panelId, fullText) => {
+  endStream: (panelId, fullText, sdkUuid?) => {
     updatePanel(set, panelId, (state) => {
       const text = fullText || state.currentStreamText
       if (!text) return { currentStreamText: '', isStreaming: false }
@@ -182,6 +207,7 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
             id: globalThis.crypto.randomUUID(),
             type: 'assistant' as const,
             content: text,
+            sdkUuid,
             ts: Date.now(),
           },
         ],
@@ -273,6 +299,8 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
       historyOpen: false,
       pendingCwdChange: null,
       status: 'idle' as ClaudeStatus,
+      backgroundTasks: new Map(),
+      initResult: null,
       config: { ...state.config },
     }))
   },
@@ -296,6 +324,99 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
       return { panels }
     })
   },
+
+  startTask: (panelId, task) => {
+    updatePanel(set, panelId, (state) => {
+      const backgroundTasks = new Map(state.backgroundTasks)
+      backgroundTasks.set(task.taskId, {
+        taskId: task.taskId,
+        description: task.description,
+        status: 'running',
+        taskType: task.taskType,
+        prompt: task.prompt,
+        toolUseId: task.toolUseId,
+        startedAt: task.ts,
+      })
+      return { backgroundTasks }
+    })
+  },
+
+  updateTaskProgress: (panelId, taskId, update) => {
+    updatePanel(set, panelId, (state) => {
+      const existing = state.backgroundTasks.get(taskId)
+      if (!existing) return {}
+      const backgroundTasks = new Map(state.backgroundTasks)
+      backgroundTasks.set(taskId, { ...existing, ...update })
+      return { backgroundTasks }
+    })
+  },
+
+  completeTask: (panelId, taskId, result) => {
+    updatePanel(set, panelId, (state) => {
+      const existing = state.backgroundTasks.get(taskId)
+      if (!existing) return {}
+      const backgroundTasks = new Map(state.backgroundTasks)
+      backgroundTasks.set(taskId, {
+        ...existing,
+        status: result.status,
+        summary: result.summary,
+        outputFile: result.outputFile,
+        usage: result.usage,
+        completedAt: Date.now(),
+      })
+      return { backgroundTasks }
+    })
+  },
+
+  setInitResult: (panelId, data) => {
+    updatePanel(set, panelId, () => ({ initResult: data }))
+  },
 }))
 
-export type { ClaudeMessage, ClaudePanelState, ClaudePanelConfig, PermissionMode, EffortLevel, ClaudeStatus }
+// ---- Pure helper functions for initResult data ----
+
+const FALLBACK_MODELS: ModelInfo[] = [
+  { value: 'sonnet', displayName: 'Sonnet', description: '' },
+  { value: 'opus', displayName: 'Opus', description: '' },
+  { value: 'haiku', displayName: 'Haiku', description: '' },
+]
+
+const ALL_EFFORT_LEVELS: EffortLevel[] = ['low', 'medium', 'high', 'max']
+
+export function getModelsForPanel(panel: ClaudePanelState): ModelInfo[] {
+  return panel.initResult?.models ?? FALLBACK_MODELS
+}
+
+export function getEffortLevelsForModel(panel: ClaudePanelState): EffortLevel[] {
+  if (!panel.initResult) return ALL_EFFORT_LEVELS
+  const model = panel.initResult.models.find((m) => m.value === panel.config.model)
+  if (!model || model.supportsEffort === undefined) return ALL_EFFORT_LEVELS
+  if (!model.supportsEffort) return []
+  return (model.supportedEffortLevels as EffortLevel[] | undefined) ?? ALL_EFFORT_LEVELS
+}
+
+export function getSlashCommandsForPanel(panel: ClaudePanelState): SlashCommand[] {
+  return panel.initResult?.commands ?? []
+}
+
+export function getAccountInfoForPanel(panel: ClaudePanelState): AccountInfo | null {
+  return panel.initResult?.account ?? null
+}
+
+export function getFastModeStateForPanel(panel: ClaudePanelState): FastModeState | undefined {
+  return panel.initResult?.fast_mode_state
+}
+
+export function getAgentsForPanel(panel: ClaudePanelState): AgentInfo[] {
+  return panel.initResult?.agents ?? []
+}
+
+export function getAnyInitResult(): InitializationResult | null {
+  const panels = useClaudeStore.getState().panels
+  for (const panel of panels.values()) {
+    if (panel.initResult) return panel.initResult
+  }
+  return null
+}
+
+export type { ClaudeMessage, ClaudePanelState, ClaudePanelConfig, PermissionMode, EffortLevel, ClaudeStatus, InitializationResult }

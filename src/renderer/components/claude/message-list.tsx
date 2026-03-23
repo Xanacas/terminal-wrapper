@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
-import type { ClaudeMessage } from '~/stores/claude-store'
+import type { ClaudeMessage, BackgroundTask } from '~/stores/claude-store'
 import { MessageItem } from './message-item'
+import { BackgroundTaskCard } from './background-task-card'
 import { renderMarkdown } from '~/lib/markdown'
 
 interface MessageListProps {
@@ -13,6 +14,10 @@ interface MessageListProps {
   onDenyPermission: (toolUseId: string) => void
   onAlwaysAllowPermission?: (toolUseId: string, toolName: string) => void
   onLinkClick?: (url: string) => void
+  backgroundTasks?: Map<string, BackgroundTask>
+  onStopTask?: (taskId: string) => void
+  onFork?: (sdkUuid: string) => void
+  onRewind?: (sdkUuid: string) => void
 }
 
 export function MessageList({
@@ -25,6 +30,10 @@ export function MessageList({
   onDenyPermission,
   onAlwaysAllowPermission,
   onLinkClick,
+  backgroundTasks,
+  onStopTask,
+  onFork,
+  onRewind,
 }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -88,8 +97,21 @@ export function MessageList({
             onDenyPermission={onDenyPermission}
             onAlwaysAllowPermission={onAlwaysAllowPermission}
             isPendingPermission={msg.toolUseId ? pendingIds.has(msg.toolUseId) : false}
+            onFork={onFork}
+            onRewind={onRewind}
           />
         ))}
+
+        {/* Background tasks */}
+        {backgroundTasks && backgroundTasks.size > 0 && (
+          <div className="px-5 py-2 space-y-2">
+            {[...backgroundTasks.values()]
+              .sort((a, b) => a.startedAt - b.startedAt)
+              .map((task) => (
+                <BackgroundTaskCard key={task.taskId} task={task} onStop={onStopTask} />
+              ))}
+          </div>
+        )}
 
         {/* Streaming indicator */}
         {isStreaming && currentStreamText && (

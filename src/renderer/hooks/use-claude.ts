@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useRef } from 'react'
 import { api } from '~/lib/ipc'
+import { subscribeClaudePanel } from '~/lib/claude-ipc'
 import { useClaudeStore } from '~/stores/claude-store'
 import { useAppStore } from '~/stores/app-store'
 import { updateLeafInTree, collectLeafPanels } from '~/lib/panel-utils'
@@ -24,9 +25,18 @@ export function mapHistoryToMessages(history: unknown[]): ClaudeMessage[] {
       id: (m.uuid as string) ?? globalThis.crypto.randomUUID(),
       type: msgType as 'user' | 'assistant',
       content: text,
+      sdkUuid: (m.uuid as string) || undefined,
       ts: Date.now(),
     }
   })
+}
+
+export type ForkDestination = 'tab' | 'split-right' | 'split-down' | 'new-thread'
+
+export function getForkDestinations(hasDevContainer: boolean): ForkDestination[] {
+  const dests: ForkDestination[] = ['tab', 'split-right', 'split-down']
+  if (!hasDevContainer) dests.push('new-thread')
+  return dests
 }
 
 function persistClaudeSessionId(panelId: string, sessionId: string) {
@@ -152,6 +162,8 @@ export function useClaude(panelId: string, cwd: string) {
     historyOpen: false,
     restoreStatus: 'none' as const,
     restoreError: undefined as string | undefined,
+    initResult: null as import('../../main/claude/types').InitializationResult | null,
+    backgroundTasks: new Map() as Map<string, import('~/stores/claude-store').BackgroundTask>,
   }
 
   // Track whether we're accumulating stream deltas
@@ -189,152 +201,183 @@ export function useClaude(panelId: string, cwd: string) {
 
     const actions = () => useClaudeStore.getState()
 
-    const removeMsg = api.onClaudeMessage((id, msg) => {
-      if (id !== panelId) return
-      const m = msg as Record<string, unknown>
-      const a = actions()
+    return subscribeClaudePanel(panelId, {
+      onMessage: (_id, msg) => {
+        const m = msg as Record<string, unknown>
+        const a = actions()
+        if (m.type === 'init-result') console.log('[claude-ui] GOT init-result message!')
 
-      switch (m.type) {
-        case 'text': {
-          if (hasStreamDeltasRef.current) {
-            a.endStream(panelId, m.content as string)
+        switch (m.type) {
+          case 'text': {
+            if (hasStreamDeltasRef.current) {
+              a.endStream(panelId, m.content as string)
+              hasStreamDeltasRef.current = false
+            } else {
+              a.addMessage(panelId, {
+                id: globalThis.crypto.randomUUID(),
+                type: m.role as 'user' | 'assistant',
+                content: m.content as string,
+                ts: m.ts as number,
+              })
+            }
+            a.setStreaming(panelId, false)
+            const panelForText = a.getPanel(panelId)
+            a.setStatus(panelId, panelForText.config.permissionMode === 'plan' ? 'action-needed' : 'waiting')
+            break
+          }
+          case 'stream-delta': {
+            hasStreamDeltasRef.current = true
+            a.setStreaming(panelId, true)
+            a.appendStreamDelta(panelId, m.text as string)
+            const panel = a.getPanel(panelId)
+            a.setStatus(panelId, panel.config.permissionMode === 'plan' ? 'planning' : 'running')
+            break
+          }
+          case 'stream-end':
+            a.endStream(panelId, m.fullText as string, m.sdkUuid as string | undefined)
+            a.setStreaming(panelId, false)
             hasStreamDeltasRef.current = false
-          } else {
+            break
+          case 'tool-use': {
+            if (hasStreamDeltasRef.current) {
+              a.endStream(panelId, '')
+              hasStreamDeltasRef.current = false
+            }
+            const toolName = m.toolName as string
             a.addMessage(panelId, {
               id: globalThis.crypto.randomUUID(),
-              type: m.role as 'user' | 'assistant',
-              content: m.content as string,
+              type: 'tool-use',
+              content: '',
+              toolUseId: m.toolUseId as string,
+              toolName,
+              toolInput: m.input,
+              sdkUuid: m.sdkUuid as string | undefined,
               ts: m.ts as number,
             })
+            if (toolName === 'AskUserQuestion') {
+              a.setStatus(panelId, 'action-needed')
+            } else {
+              const panelForTool = a.getPanel(panelId)
+              a.setStatus(panelId, panelForTool.config.permissionMode === 'plan' ? 'planning' : 'running')
+            }
+            break
           }
-          a.setStreaming(panelId, false)
-          // When Claude finishes a text response and it's the user's turn:
-          // plan mode → "action needed" (user needs to decide next steps)
-          // normal mode → "waiting" (Claude expects user feedback)
-          const panelForText = a.getPanel(panelId)
-          a.setStatus(panelId, panelForText.config.permissionMode === 'plan' ? 'action-needed' : 'waiting')
-          break
+          case 'tool-result':
+            a.addMessage(panelId, {
+              id: globalThis.crypto.randomUUID(),
+              type: 'tool-result',
+              content: '',
+              toolUseId: m.toolUseId as string,
+              toolOutput: m.output as string,
+              isError: m.isError as boolean,
+              sdkUuid: m.sdkUuid as string | undefined,
+              ts: m.ts as number,
+            })
+            break
+          case 'session-meta':
+            a.setSessionMeta(panelId, {
+              sessionId: m.sessionId as string,
+              model: m.model as string,
+              permissionMode: m.permissionMode as PermissionMode,
+              costUsd: m.costUsd as number,
+              inputTokens: m.inputTokens as number,
+              outputTokens: m.outputTokens as number,
+            })
+            persistClaudeSessionId(panelId, m.sessionId as string)
+            break
+          case 'init-result':
+            console.log('[claude-ui] Received init-result:', JSON.stringify(m.data).slice(0, 200))
+            a.setInitResult(panelId, m.data as import('../../main/claude/types').InitializationResult)
+            break
+          case 'task-event': {
+            const subtype = m.subtype as string
+            if (subtype === 'task-started') {
+              a.startTask(panelId, {
+                taskId: m.taskId as string,
+                description: m.description as string,
+                taskType: m.taskType as string | undefined,
+                prompt: m.prompt as string | undefined,
+                toolUseId: m.toolUseId as string | undefined,
+                ts: m.ts as number,
+              })
+            } else if (subtype === 'task-progress') {
+              a.updateTaskProgress(panelId, m.taskId as string, {
+                description: m.description as string,
+                summary: m.summary as string | undefined,
+                lastToolName: m.lastToolName as string | undefined,
+                usage: m.usage as { totalTokens: number; toolUses: number; durationMs: number } | undefined,
+              })
+            } else if (subtype === 'task-notification') {
+              a.completeTask(panelId, m.taskId as string, {
+                status: m.status as 'completed' | 'failed' | 'stopped',
+                summary: m.summary as string,
+                outputFile: m.outputFile as string | undefined,
+                usage: m.usage as { totalTokens: number; toolUses: number; durationMs: number } | undefined,
+              })
+              if (document.hidden) {
+                new Notification('Task finished', { body: m.summary as string })
+              }
+            }
+            break
+          }
         }
-        case 'stream-delta': {
-          hasStreamDeltasRef.current = true
-          a.setStreaming(panelId, true)
-          a.appendStreamDelta(panelId, m.text as string)
-          const panel = a.getPanel(panelId)
-          a.setStatus(panelId, panel.config.permissionMode === 'plan' ? 'planning' : 'running')
-          break
-        }
-        case 'stream-end':
-          a.endStream(panelId, m.fullText as string)
-          a.setStreaming(panelId, false)
+      },
+
+      onPermission: (_id, msg) => {
+        const m = msg as Record<string, unknown>
+        const a = actions()
+        a.addPermissionRequest(panelId, {
+          toolUseId: m.toolUseId as string,
+          toolName: m.toolName as string,
+          input: m.input,
+          title: m.title as string | undefined,
+        })
+        a.setStatus(panelId, 'action-needed')
+      },
+
+      onEnded: (_id, msg) => {
+        const m = msg as Record<string, unknown>
+        const a = actions()
+
+        if (hasStreamDeltasRef.current) {
+          a.endStream(panelId, '')
           hasStreamDeltasRef.current = false
-          break
-        case 'tool-use': {
-          if (hasStreamDeltasRef.current) {
-            a.endStream(panelId, '')
-            hasStreamDeltasRef.current = false
-          }
-          const toolName = m.toolName as string
-          a.addMessage(panelId, {
-            id: globalThis.crypto.randomUUID(),
-            type: 'tool-use',
-            content: '',
-            toolUseId: m.toolUseId as string,
-            toolName,
-            toolInput: m.input,
-            ts: m.ts as number,
-          })
-          // AskUserQuestion means Claude is asking the user something
-          if (toolName === 'AskUserQuestion') {
-            a.setStatus(panelId, 'action-needed')
-          } else {
-            const panelForTool = a.getPanel(panelId)
-            a.setStatus(panelId, panelForTool.config.permissionMode === 'plan' ? 'planning' : 'running')
-          }
-          break
         }
-        case 'tool-result':
+
+        a.setStreaming(panelId, false)
+        if (m.reason === 'error' && m.error) {
           a.addMessage(panelId, {
             id: globalThis.crypto.randomUUID(),
-            type: 'tool-result',
-            content: '',
-            toolUseId: m.toolUseId as string,
-            toolOutput: m.output as string,
-            isError: m.isError as boolean,
+            type: 'system',
+            content: `Error: ${m.error}`,
             ts: m.ts as number,
           })
-          break
-        case 'session-meta':
-          a.setSessionMeta(panelId, {
-            sessionId: m.sessionId as string,
-            model: m.model as string,
-            permissionMode: m.permissionMode as PermissionMode,
-            costUsd: m.costUsd as number,
-            inputTokens: m.inputTokens as number,
-            outputTokens: m.outputTokens as number,
-          })
-          persistClaudeSessionId(panelId, m.sessionId as string)
-          break
-      }
-    })
+        }
 
-    const removePermission = api.onClaudePermissionRequest((id, msg) => {
-      if (id !== panelId) return
-      const m = msg as Record<string, unknown>
-      const a = actions()
-      a.addPermissionRequest(panelId, {
-        toolUseId: m.toolUseId as string,
-        toolName: m.toolName as string,
-        input: m.input,
-        title: m.title as string | undefined,
-      })
-      a.setStatus(panelId, 'action-needed')
-    })
+        const panelForTasks = a.getPanel(panelId)
+        for (const [taskId, task] of panelForTasks.backgroundTasks) {
+          if (task.status === 'running') {
+            a.completeTask(panelId, taskId, { status: 'stopped', summary: 'Session ended' })
+          }
+        }
 
-    const removeEnded = api.onClaudeSessionEnded((id, msg) => {
-      if (id !== panelId) return
-      const m = msg as Record<string, unknown>
-      const a = actions()
+        const panel = a.getPanel(panelId)
+        if (m.reason === 'completed' && panel.config.permissionMode === 'plan') {
+          a.setStatus(panelId, 'planned')
+        } else {
+          a.setStatus(panelId, 'done')
+        }
+      },
 
-      if (hasStreamDeltasRef.current) {
-        a.endStream(panelId, '')
-        hasStreamDeltasRef.current = false
-      }
-
-      a.setStreaming(panelId, false)
-      if (m.reason === 'error' && m.error) {
-        a.addMessage(panelId, {
+      onError: (_id, msg) => {
+        actions().addMessage(panelId, {
           id: globalThis.crypto.randomUUID(),
           type: 'system',
-          content: `Error: ${m.error}`,
-          ts: m.ts as number,
+          content: `Error: ${(msg as Record<string, unknown>).error}`,
+          ts: (msg as Record<string, unknown>).ts as number,
         })
-      }
-
-      // Determine final status based on mode and reason
-      const panel = a.getPanel(panelId)
-      if (m.reason === 'completed' && panel.config.permissionMode === 'plan') {
-        a.setStatus(panelId, 'planned')
-      } else {
-        a.setStatus(panelId, 'done')
-      }
+      },
     })
-
-    const removeError = api.onClaudeError((id, msg) => {
-      if (id !== panelId) return
-      actions().addMessage(panelId, {
-        id: globalThis.crypto.randomUUID(),
-        type: 'system',
-        content: `Error: ${(msg as Record<string, unknown>).error}`,
-        ts: (msg as Record<string, unknown>).ts as number,
-      })
-    })
-
-    return () => {
-      removeMsg()
-      removePermission()
-      removeEnded()
-      removeError()
-    }
   }, [panelId])
 
   const stateRef = useRef(state)
@@ -476,6 +519,10 @@ export function useClaude(panelId: string, cwd: string) {
     persistClaudeSessionId(panelId, '')
   }, [panelId])
 
+  const stopTask = useCallback((taskId: string) => {
+    api.stopClaudeTask(panelId, taskId)
+  }, [panelId])
+
   return {
     ...state,
     restoreStatus: state.restoreStatus,
@@ -495,5 +542,6 @@ export function useClaude(panelId: string, cwd: string) {
     toggleSettings,
     toggleHistory,
     newSession,
+    stopTask,
   }
 }

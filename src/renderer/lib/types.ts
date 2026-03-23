@@ -91,6 +91,7 @@ export interface Api {
   sendClaudeMessage: (panelId: string, text: string, images?: Array<{ base64: string; mediaType: string }>) => Promise<{ ok: boolean }>
   interruptClaude: (panelId: string) => void
   destroyClaude: (panelId: string) => void
+  stopClaudeTask: (panelId: string, taskId: string) => Promise<boolean>
   respondClaudePermission: (panelId: string, toolUseId: string, allowed: boolean, updatedInput?: Record<string, unknown>) => void
   updateClaudeConfig: (panelId: string, updates: Record<string, unknown>) => Promise<{ ok: boolean }>
   setClaudeCwd: (panelId: string, cwd: string) => Promise<{ ok: boolean }>

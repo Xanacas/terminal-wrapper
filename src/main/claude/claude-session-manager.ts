@@ -116,6 +116,32 @@ function getSpawnClaudeCodeProcess(docker?: DockerTarget) {
 type SDKQuery = AsyncGenerator<Record<string, unknown>, void> & {
   interrupt(): Promise<void>
   streamInput(stream: AsyncIterable<Record<string, unknown>>): Promise<void>
+  stopTask(taskId: string): Promise<void>
+  initializationResult(): Promise<Record<string, unknown> | undefined>
+  rewindFiles?(userMessageId: string, options?: { dryRun?: boolean }): Promise<{
+    canRewind: boolean
+    error?: string
+    filesChanged?: string[]
+    insertions?: number
+    deletions?: number
+  }>
+}
+
+export async function fetchInitializationResult(query: SDKQuery): Promise<import('./types').InitializationResult | null> {
+  try {
+    const data = await query.initializationResult()
+    debugLog('[claude] initializationResult raw type:', typeof data, 'keys:', data ? Object.keys(data as object).join(',') : 'none')
+    if (!data) {
+      debugLog('[claude] initializationResult() returned falsy:', data)
+      return null
+    }
+    const result = data as unknown as import('./types').InitializationResult
+    debugLog('[claude] initializationResult parsed. models:', result.models?.length, 'commands:', result.commands?.length, 'account:', JSON.stringify(result.account))
+    return result
+  } catch (err) {
+    debugLog('[claude] initializationResult() failed:', String(err))
+    return null
+  }
 }
 
 interface PermissionResolver {
@@ -256,12 +282,20 @@ export async function sendMessage(
   return startNewQuery(panelId, session, text, images)
 }
 
+function debugLog(...args: unknown[]) {
+  const msg = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')
+  console.log(msg)
+  // Also write to file for guaranteed visibility
+  try { require('fs').appendFileSync(require('path').join(require('os').tmpdir(), 'claude-init-debug.log'), `${new Date().toISOString()} ${msg}\n`) } catch { /* */ }
+}
+
 async function startNewQuery(
   panelId: string,
   session: ClaudeSession,
   text: string,
   images?: Array<{ base64: string; mediaType: string }>
 ) {
+  debugLog(`[claude:${panelId}] >>> startNewQuery called`)
   const sdk = await import('@anthropic-ai/claude-agent-sdk')
   const config = session.config
   const abortController = new AbortController() // eslint-disable-line no-undef
@@ -314,6 +348,7 @@ async function startNewQuery(
     effort: config.effort,
     cwd: config.cwd,
     includePartialMessages: true,
+    enableFileCheckpointing: true,
     canUseTool,
     spawnClaudeCodeProcess: getSpawnClaudeCodeProcess(config.docker),
     toolConfig: {
@@ -345,6 +380,7 @@ async function startNewQuery(
   }) as unknown as SDKQuery
 
   session.activeQuery = queryInstance
+  debugLog(`[claude:${panelId}] >>> query created, calling processQuery. Has initializationResult:`, typeof queryInstance.initializationResult)
 
   processQuery(panelId, session).catch((err) => {
     console.error(`[claude:${panelId}] processQuery error:`, err)
@@ -355,12 +391,41 @@ async function processQuery(panelId: string, session: ClaudeSession) {
   let sentTextLength = 0
   const sentToolUseIds = new Set<string>()
   let accumulatedAssistantText = ''
+  let currentAssistantUuid: string | undefined
+  let initResultFetched = false
+
+  const tryFetchInitResult = () => {
+    if (initResultFetched || !session.activeQuery) return
+    initResultFetched = true
+    debugLog(`[claude:${panelId}] Calling initializationResult()...`)
+    fetchInitializationResult(session.activeQuery).then((initData) => {
+      debugLog(`[claude:${panelId}] initializationResult() returned:`, initData ? `${initData.models?.length ?? 0} models, ${initData.commands?.length ?? 0} commands` : 'null')
+      if (initData) {
+        debugLog(`[claude:${panelId}] About to send init-result IPC`)
+        send('claude:message', panelId, {
+          type: 'init-result',
+          data: initData,
+          ts: Date.now(),
+        })
+        debugLog(`[claude:${panelId}] init-result IPC sent`)
+      }
+    }).catch((err) => {
+      debugLog(`[claude:${panelId}] initResult .then() error:`, String(err))
+    })
+  }
+
+  // Try immediately (may resolve after SDK process initializes)
+  tryFetchInitResult()
 
   try {
     for await (const message of session.activeQuery!) {
       const msg = message as Record<string, unknown>
 
+      // Retry after first message if initial call hasn't resolved yet
+      if (!initResultFetched) tryFetchInitResult()
+
       if (msg.type === 'assistant') {
+        currentAssistantUuid = (msg.uuid as string) || undefined
         const betaMsg = msg.message as Record<string, unknown> | undefined
         const content = betaMsg?.content as Array<Record<string, unknown>> | undefined
         if (!content) continue
@@ -379,6 +444,7 @@ async function processQuery(panelId: string, session: ClaudeSession) {
                 send('claude:message', panelId, {
                   type: 'stream-delta',
                   text: textSoFar.slice(sentTextLength),
+                  sdkUuid: currentAssistantUuid,
                   ts: Date.now(),
                 })
                 sentTextLength = textSoFar.length
@@ -389,6 +455,7 @@ async function processQuery(panelId: string, session: ClaudeSession) {
                 toolUseId: toolId,
                 toolName: block.name as string,
                 input: block.input,
+                sdkUuid: currentAssistantUuid,
                 ts: Date.now(),
               })
 
@@ -402,6 +469,7 @@ async function processQuery(panelId: string, session: ClaudeSession) {
           send('claude:message', panelId, {
             type: 'stream-delta',
             text: textSoFar.slice(sentTextLength),
+            sdkUuid: currentAssistantUuid,
             ts: Date.now(),
           })
           sentTextLength = textSoFar.length
@@ -410,12 +478,21 @@ async function processQuery(panelId: string, session: ClaudeSession) {
       } else if (msg.type === 'user') {
         // Log the full assistant text from previous turn
         if (accumulatedAssistantText) {
+          // Send stream-end with the assistant's sdkUuid
+          send('claude:message', panelId, {
+            type: 'stream-end',
+            fullText: accumulatedAssistantText,
+            sdkUuid: currentAssistantUuid,
+            ts: Date.now(),
+          })
           logger.logAssistantText(panelId, accumulatedAssistantText)
           accumulatedAssistantText = ''
         }
         // Reset text tracking for new assistant turn
         sentTextLength = 0
         sentToolUseIds.clear()
+
+        const userUuid = (msg.uuid as string) || undefined
 
         // Process tool results from the user message
         const userMsg = msg.message as Record<string, unknown> | undefined
@@ -440,6 +517,7 @@ async function processQuery(panelId: string, session: ClaudeSession) {
                 toolUseId: (block.tool_use_id ?? '') as string,
                 output,
                 isError: block.is_error === true,
+                sdkUuid: userUuid,
                 ts: Date.now(),
               })
 
@@ -468,6 +546,32 @@ async function processQuery(panelId: string, session: ClaudeSession) {
         })
 
         logger.logSessionMeta(panelId, { model: session.config.model, costUsd: session.costUsd, inputTokens: session.inputTokens, outputTokens: session.outputTokens })
+      } else if (msg.type === 'system') {
+        const subtype = msg.subtype as string
+        if (subtype === 'task_started' || subtype === 'task_progress' || subtype === 'task_notification') {
+          const rawUsage = msg.usage as { total_tokens: number; tool_uses: number; duration_ms: number } | undefined
+          send('claude:message', panelId, {
+            type: 'task-event',
+            subtype: subtype === 'task_started' ? 'task-started'
+                   : subtype === 'task_progress' ? 'task-progress'
+                   : 'task-notification',
+            taskId: msg.task_id as string,
+            toolUseId: msg.tool_use_id as string | undefined,
+            description: msg.description as string,
+            taskType: msg.task_type as string | undefined,
+            prompt: msg.prompt as string | undefined,
+            status: msg.status as string | undefined,
+            summary: msg.summary as string | undefined,
+            outputFile: msg.output_file as string | undefined,
+            lastToolName: msg.last_tool_name as string | undefined,
+            usage: rawUsage ? {
+              totalTokens: rawUsage.total_tokens,
+              toolUses: rawUsage.tool_uses,
+              durationMs: rawUsage.duration_ms,
+            } : undefined,
+            ts: Date.now(),
+          })
+        }
       }
     }
 
@@ -620,3 +724,49 @@ export function destroyAll() {
     destroySession(panelId)
   }
 }
+
+export async function stopBackgroundTask(panelId: string, taskId: string): Promise<boolean> {
+  const session = sessions.get(panelId)
+  if (!session?.activeQuery) return false
+  try {
+    await (session.activeQuery as SDKQuery).stopTask(taskId)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function forkSessionFromPanel(
+  panelId: string,
+  options?: { upToMessageId?: string; title?: string }
+): Promise<{ sessionId: string }> {
+  const session = sessions.get(panelId)
+  if (!session) throw new Error(`No session for panel ${panelId}`)
+  if (!session.sdkSessionId) throw new Error(`Session ${panelId} has no SDK session ID`)
+
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  const result = await sdk.forkSession(session.sdkSessionId, {
+    dir: session.config.cwd,
+    upToMessageId: options?.upToMessageId,
+    title: options?.title,
+  })
+  return { sessionId: result.sessionId }
+}
+
+export async function rewindFilesInSession(
+  panelId: string,
+  userMessageId: string,
+  options?: { dryRun?: boolean }
+) {
+  const session = sessions.get(panelId)
+  if (!session) throw new Error(`No session for panel ${panelId}`)
+  if (!session.activeQuery) throw new Error(`No active query for panel ${panelId}`)
+
+  const q = session.activeQuery as SDKQuery
+  if (typeof q.rewindFiles !== 'function')
+    throw new Error('rewindFiles not available (checkpointing may not be enabled)')
+
+  return q.rewindFiles(userMessageId, options)
+}
+
+export const _testGetSession = (id: string) => sessions.get(id)

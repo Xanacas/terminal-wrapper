@@ -124,6 +124,12 @@ const api = {
     ipcRenderer.invoke('claude:send-message', panelId, text, images),
   interruptClaude: (panelId: string) => ipcRenderer.send('claude:interrupt', panelId),
   destroyClaude: (panelId: string) => ipcRenderer.send('claude:destroy-session', panelId),
+  stopClaudeTask: (panelId: string, taskId: string): Promise<boolean> =>
+    ipcRenderer.invoke('claude:stop-task', panelId, taskId),
+  forkClaudeSession: (panelId: string, options?: { upToMessageId?: string; title?: string }): Promise<{ sessionId: string }> =>
+    ipcRenderer.invoke('claude:fork-session', panelId, options),
+  rewindClaudeFiles: (panelId: string, userMessageId: string, options?: { dryRun?: boolean }): Promise<{ canRewind: boolean; error?: string; filesChanged?: string[]; insertions?: number; deletions?: number }> =>
+    ipcRenderer.invoke('claude:rewind-files', panelId, userMessageId, options),
   respondClaudePermission: (panelId: string, toolUseId: string, allowed: boolean, updatedInput?: Record<string, unknown>) =>
     ipcRenderer.send('claude:respond-permission', panelId, toolUseId, allowed, updatedInput),
   updateClaudeConfig: (panelId: string, updates: Record<string, unknown>): Promise<{ ok: boolean }> =>

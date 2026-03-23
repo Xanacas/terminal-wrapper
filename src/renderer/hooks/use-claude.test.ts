@@ -13,7 +13,7 @@ vi.mock('react', () => ({
 
 vi.stubGlobal('crypto', { randomUUID: () => 'test-uuid' })
 
-import { mapHistoryToMessages, getPersistedSessionId } from './use-claude'
+import { mapHistoryToMessages, getPersistedSessionId, getForkDestinations } from './use-claude'
 
 describe('mapHistoryToMessages', () => {
   it('maps user message with string content', () => {
@@ -259,5 +259,46 @@ describe('getPersistedSessionId', () => {
     const { useAppStore } = await import('~/stores/app-store')
     useAppStore.setState({ projects: [] })
     expect(getPersistedSessionId('panel-1')).toBeNull()
+  })
+})
+
+describe('mapHistoryToMessages sdkUuid', () => {
+  it('preserves sdkUuid from history uuid field', () => {
+    const history = [
+      {
+        type: 'user',
+        uuid: 'sdk-uuid-abc',
+        message: { role: 'user', content: 'Hello' },
+      },
+    ]
+
+    const result = mapHistoryToMessages(history)
+
+    expect(result[0].sdkUuid).toBe('sdk-uuid-abc')
+  })
+
+  it('sets sdkUuid undefined when uuid is missing', () => {
+    const history = [
+      {
+        type: 'user',
+        message: { role: 'user', content: 'No uuid' },
+      },
+    ]
+
+    const result = mapHistoryToMessages(history)
+
+    expect(result[0].sdkUuid).toBeUndefined()
+  })
+})
+
+describe('getForkDestinations', () => {
+  it('returns tab, split-right, split-down for devContainer threads', () => {
+    const result = getForkDestinations(true)
+    expect(result).toEqual(['tab', 'split-right', 'split-down'])
+  })
+
+  it('returns tab, split-right, split-down, new-thread for local threads', () => {
+    const result = getForkDestinations(false)
+    expect(result).toEqual(['tab', 'split-right', 'split-down', 'new-thread'])
   })
 })

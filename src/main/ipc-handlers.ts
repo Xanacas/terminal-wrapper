@@ -31,7 +31,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('git:branch', async (_event, cwd: string) => {
     try {
       const { execSync } = await import('child_process')
-      return execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf-8' }).trim()
+      return execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
     } catch {
       return ''
     }
@@ -305,6 +305,18 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('claude:resume-session', (_event, panelId: string, sessionId: string) => {
     claudeSessionManager.resumeSession(panelId, sessionId)
     return { ok: true }
+  })
+
+  ipcMain.handle('claude:stop-task', (_event, panelId: string, taskId: string) => {
+    return claudeSessionManager.stopBackgroundTask(panelId, taskId)
+  })
+
+  ipcMain.handle('claude:fork-session', (_event, panelId: string, options?: { upToMessageId?: string; title?: string }) => {
+    return claudeSessionManager.forkSessionFromPanel(panelId, options)
+  })
+
+  ipcMain.handle('claude:rewind-files', (_event, panelId: string, userMessageId: string, options?: { dryRun?: boolean }) => {
+    return claudeSessionManager.rewindFilesInSession(panelId, userMessageId, options)
   })
 
   ipcMain.handle('claude:glob-files', async (_event, cwd: string, pattern: string) => {
