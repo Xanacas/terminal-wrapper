@@ -46,8 +46,9 @@ export function registerIpcHandlers(): void {
   // ---- Git branch ----
   ipcMain.handle('git:branch', async (_event, cwd: string) => {
     try {
+      const safeCwd = validateIpcPath(cwd)
       const { execSync } = await import('child_process')
-      return execSync('git rev-parse --abbrev-ref HEAD', { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
+      return execSync('git rev-parse --abbrev-ref HEAD', { cwd: safeCwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim()
     } catch {
       return ''
     }
@@ -67,10 +68,19 @@ export function registerIpcHandlers(): void {
   // ---- Terminal buffer persistence ----
   const buffersDir = join(app.getPath('userData'), 'terminal-buffers')
 
+  // Validate buffer IDs to prevent path traversal
+  const safeBufferId = (id: string) => {
+    if (typeof id !== 'string' || /[/\\:]/.test(id) || id.includes('..') || id.includes('\0')) {
+      throw new Error('Invalid buffer id')
+    }
+    return id
+  }
+
   ipcMain.handle('terminal-buffer:save', (_event, id: string, content: string) => {
     try {
+      const safeId = safeBufferId(id)
       if (!existsSync(buffersDir)) mkdirSync(buffersDir, { recursive: true })
-      writeFileSync(join(buffersDir, `${id}.txt`), content, 'utf-8')
+      writeFileSync(join(buffersDir, `${safeId}.txt`), content, 'utf-8')
       return { ok: true }
     } catch (e) {
       console.error('Failed to save terminal buffer:', e)
@@ -80,7 +90,8 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('terminal-buffer:load', (_event, id: string) => {
     try {
-      const file = join(buffersDir, `${id}.txt`)
+      const safeId = safeBufferId(id)
+      const file = join(buffersDir, `${safeId}.txt`)
       if (existsSync(file)) {
         return readFileSync(file, 'utf-8')
       }
@@ -92,7 +103,8 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('terminal-buffer:delete', (_event, id: string) => {
     try {
-      const file = join(buffersDir, `${id}.txt`)
+      const safeId = safeBufferId(id)
+      const file = join(buffersDir, `${safeId}.txt`)
       if (existsSync(file)) unlinkSync(file)
     } catch {
       // ignore
@@ -317,12 +329,14 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('claude:set-cwd', (_event, panelId: string, cwd: string) => {
-    claudeSessionManager.updateConfig(panelId, { cwd })
+    const safeCwd = validateIpcPath(cwd)
+    claudeSessionManager.updateConfig(panelId, { cwd: safeCwd })
     return { ok: true }
   })
 
   ipcMain.handle('claude:list-sessions', (_event, cwd: string) => {
-    return claudeSessionManager.listPastSessions(cwd)
+    const safeCwd = validateIpcPath(cwd)
+    return claudeSessionManager.listPastSessions(safeCwd)
   })
 
   ipcMain.handle('claude:get-session-history', (_event, sessionId: string) => {
@@ -356,8 +370,10 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('claude:glob-files', async (_event, cwd: string, pattern: string) => {
     try {
+      const safeCwd = validateIpcPath(cwd)
+      if (typeof pattern !== 'string' || pattern.includes('\0')) return []
       const { readdir } = await import('fs/promises')
-      const files = await readdir(cwd, { recursive: true })
+      const files = await readdir(safeCwd, { recursive: true })
       const lower = pattern.toLowerCase()
       return (files as string[])
         .filter(f => f.toLowerCase().includes(lower))
