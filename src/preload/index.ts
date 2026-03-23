@@ -182,7 +182,11 @@ const api = {
     ipcRenderer.invoke('devcontainer:start', name),
   destroyDevContainer: (name: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('devcontainer:destroy', name),
-  getDevContainerStatus: (name: string): Promise<{ status: 'running' | 'stopped' | 'not-found'; error?: string }> =>
+  pauseDevContainer: (name: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('devcontainer:pause', name),
+  unpauseDevContainer: (name: string): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('devcontainer:unpause', name),
+  getDevContainerStatus: (name: string): Promise<{ status: 'running' | 'paused' | 'stopped' | 'not-found'; error?: string }> =>
     ipcRenderer.invoke('devcontainer:status', name),
   listRemoteBranches: (repo: string): Promise<string[]> =>
     ipcRenderer.invoke('devcontainer:list-branches', repo),

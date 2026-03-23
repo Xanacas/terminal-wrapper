@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { api } from '~/lib/ipc'
 import { useAppStore } from './app-store'
 
-export type ContainerStatus = 'starting' | 'running' | 'stopped' | 'error' | 'destroying'
+export type ContainerStatus = 'starting' | 'running' | 'paused' | 'stopped' | 'error' | 'destroying'
 
 interface ContainerState {
   status: ContainerStatus
@@ -78,6 +78,7 @@ export function initDevContainerStore(): () => void {
         const { containerName } = thread.devContainer
         api.getDevContainerStatus(containerName).then((result) => {
           if (result.status === 'running') store.setStatus(containerName, 'running')
+          else if (result.status === 'paused') store.setStatus(containerName, 'paused')
           else if (result.status === 'stopped') store.setStatus(containerName, 'stopped')
           else store.setStatus(containerName, 'error', 'Container not found')
         })

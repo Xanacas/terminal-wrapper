@@ -109,7 +109,9 @@ export interface Api {
   stopDevContainer: (name: string) => Promise<{ ok: boolean; error?: string }>
   startDevContainer: (name: string) => Promise<{ ok: boolean; error?: string }>
   destroyDevContainer: (name: string) => Promise<{ ok: boolean; error?: string }>
-  getDevContainerStatus: (name: string) => Promise<{ status: 'running' | 'stopped' | 'not-found'; error?: string }>
+  pauseDevContainer: (name: string) => Promise<{ ok: boolean; error?: string }>
+  unpauseDevContainer: (name: string) => Promise<{ ok: boolean; error?: string }>
+  getDevContainerStatus: (name: string) => Promise<{ status: 'running' | 'paused' | 'stopped' | 'not-found'; error?: string }>
   listRemoteBranches: (repo: string) => Promise<string[]>
   checkContainerGitStatus: (name: string) => Promise<{ hasUncommitted: boolean; hasUnpushed: boolean; branch: string }>
   pushContainerBranch: (name: string) => Promise<{ ok: boolean; error?: string }>

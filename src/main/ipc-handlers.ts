@@ -413,6 +413,14 @@ export function registerIpcHandlers(): void {
     devcontainerManager.destroyContainer(name)
   )
 
+  ipcMain.handle('devcontainer:pause', (_event, name: string) =>
+    devcontainerManager.pauseContainer(name)
+  )
+
+  ipcMain.handle('devcontainer:unpause', (_event, name: string) =>
+    devcontainerManager.unpauseContainer(name)
+  )
+
   ipcMain.handle('devcontainer:status', (_event, name: string) =>
     devcontainerManager.inspectContainer(name)
   )

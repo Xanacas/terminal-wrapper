@@ -43,7 +43,8 @@ function ThreadWorkspace({
   const containerStatus = useDevContainerStore((s) =>
     thread.devContainer ? s.containers.get(thread.devContainer.containerName)?.status : undefined
   )
-  const containerReady = !thread.devContainer || containerStatus === 'running'
+  const containerReady = !thread.devContainer || containerStatus === 'running' || containerStatus === 'paused'
+  const containerBlocking = !containerReady && containerStatus !== 'stopped' && containerStatus !== 'paused'
 
   useEffect(() => {
     if (active && activeTab) setFocusedPanel(firstLeafId(activeTab.panel))
@@ -172,7 +173,7 @@ function ThreadWorkspace({
         {thread.tabs.map((tab) => {
           const isTabActive = tab.id === thread.activeTabId
           return (
-            <div key={tab.id} className={`absolute inset-0 ${isTabActive ? '' : 'invisible'} ${!containerReady ? 'pointer-events-none opacity-30' : ''}`}>
+            <div key={tab.id} className={`absolute inset-0 ${isTabActive ? '' : 'invisible'} ${containerBlocking ? 'pointer-events-none opacity-30' : ''}`}>
               <PanelContainer
                 panel={tab.panel}
                 projectId={project.id}
@@ -192,7 +193,7 @@ function ThreadWorkspace({
             </div>
           )
         })}
-        {thread.devContainer && !containerReady && (
+        {thread.devContainer && containerStatus && containerStatus !== 'running' && (
           <ContainerBootOverlay
             containerName={thread.devContainer.containerName}
             branchName={thread.devContainer.branchName}

@@ -148,9 +148,31 @@ export async function startContainer(containerName: string): Promise<{ ok: boole
   }
 }
 
+export async function pauseContainer(containerName: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await execFileAsync('docker', ['compose', '-p', containerName, '-f', toForwardSlash(getComposeFile()), 'pause'], {
+      windowsHide: true,
+    })
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+export async function unpauseContainer(containerName: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    await execFileAsync('docker', ['compose', '-p', containerName, '-f', toForwardSlash(getComposeFile()), 'unpause'], {
+      windowsHide: true,
+    })
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
 export async function inspectContainer(
   containerName: string
-): Promise<{ status: 'running' | 'stopped' | 'not-found'; error?: string }> {
+): Promise<{ status: 'running' | 'paused' | 'stopped' | 'not-found'; error?: string }> {
   const fullName = `${containerName}-app-1`
   try {
     const { stdout } = await execFileAsync(
@@ -160,6 +182,7 @@ export async function inspectContainer(
     )
     const raw = stdout.trim()
     if (raw === 'running') return { status: 'running' }
+    if (raw === 'paused') return { status: 'paused' }
     return { status: 'stopped' }
   } catch {
     return { status: 'not-found' }
