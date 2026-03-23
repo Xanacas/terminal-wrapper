@@ -6,6 +6,7 @@ import { api } from '~/lib/ipc'
 import { defaultUrlRoutingConfig } from '~/lib/url-routing'
 import type { UrlRoutingConfig } from '~/lib/url-routing'
 import { UrlRoutingSettings } from './url-routing-settings'
+import { getAnyInitResult } from '~/stores/claude-store'
 
 export function ProjectSettings() {
   const projectId = useUIStore((s) => s.projectSettingsId)
@@ -26,6 +27,10 @@ export function ProjectSettings() {
   const [dockerContainer, setDockerContainer] = useState('')
   const [dockerUser, setDockerUser] = useState('')
   const [dockerWorkdir, setDockerWorkdir] = useState('')
+  const [devContainerEnabled, setDevContainerEnabled] = useState(false)
+  const [devContainerRepo, setDevContainerRepo] = useState('')
+  const [devContainerBaseBranch, setDevContainerBaseBranch] = useState('')
+  const [devContainerProjectType, setDevContainerProjectType] = useState('')
 
   useEffect(() => {
     if (project) {
@@ -40,6 +45,10 @@ export function ProjectSettings() {
       setDockerContainer(project.claudeConfig?.docker?.container ?? '')
       setDockerUser(project.claudeConfig?.docker?.user ?? '')
       setDockerWorkdir(project.claudeConfig?.docker?.workdir ?? '')
+      setDevContainerEnabled(project.devContainerConfig?.enabled ?? false)
+      setDevContainerRepo(project.devContainerConfig?.githubRepo ?? '')
+      setDevContainerBaseBranch(project.devContainerConfig?.baseBranch ?? '')
+      setDevContainerProjectType(project.devContainerConfig?.projectType ?? '')
     }
   }, [project])
 
@@ -84,11 +93,17 @@ export function ProjectSettings() {
           user: dockerUser || undefined,
           workdir: dockerWorkdir || undefined,
         } : undefined,
-      }
+      },
+      devContainerConfig: devContainerEnabled ? {
+        enabled: true,
+        githubRepo: devContainerRepo,
+        baseBranch: devContainerBaseBranch || undefined,
+        projectType: devContainerProjectType || undefined,
+      } : undefined,
     })
     ensureThread()
     close()
-  }, [projectId, name, cwd, url, urlRouting, claudeCwd, claudeModel, claudePermMode, claudeEffort, dockerContainer, dockerUser, dockerWorkdir, updateProject, ensureThread, close])
+  }, [projectId, name, cwd, url, urlRouting, claudeCwd, claudeModel, claudePermMode, claudeEffort, dockerContainer, dockerUser, dockerWorkdir, devContainerEnabled, devContainerRepo, devContainerBaseBranch, devContainerProjectType, updateProject, ensureThread, close])
 
   const isNewProject = project?.threads.length === 0
 
@@ -197,9 +212,13 @@ export function ProjectSettings() {
                 onChange={(e) => setClaudeModel(e.target.value)}
                 className="rounded-lg border border-border bg-bg-tertiary px-3 py-2 text-[12.5px] text-text outline-none transition-all duration-150 focus:ring-1 focus:ring-accent/40 focus:border-accent/40"
               >
-                <option value="sonnet">Sonnet</option>
-                <option value="opus">Opus</option>
-                <option value="haiku">Haiku</option>
+                {(getAnyInitResult()?.models ?? [
+                  { value: 'sonnet', displayName: 'Sonnet' },
+                  { value: 'opus', displayName: 'Opus' },
+                  { value: 'haiku', displayName: 'Haiku' },
+                ]).map((m) => (
+                  <option key={m.value} value={m.value}>{m.displayName}</option>
+                ))}
               </select>
             </div>
 
@@ -277,6 +296,61 @@ export function ProjectSettings() {
                       spellCheck={false}
                       placeholder="/workspace"
                     />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Dev Containers */}
+          <div className="mt-2 border-t border-white/[0.06] pt-4">
+            <h3 className="mb-3 text-[12px] font-semibold text-text-secondary">Dev Containers</h3>
+
+            <label className="mb-4 flex items-center gap-2.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={devContainerEnabled}
+                onChange={(e) => setDevContainerEnabled(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-border accent-accent"
+              />
+              <span className="text-[12px] text-text-secondary">Enable dev container threads</span>
+            </label>
+
+            {devContainerEnabled && (
+              <>
+                <div className="flex flex-col gap-2 mb-4">
+                  <label className="text-[11px] font-medium uppercase tracking-wide text-text-dim">GitHub Repository</label>
+                  <input
+                    value={devContainerRepo}
+                    onChange={(e) => setDevContainerRepo(e.target.value)}
+                    className="rounded-lg border border-border bg-bg-tertiary px-3 py-2 text-[12.5px] text-text outline-none transition-all duration-150 focus:ring-1 focus:ring-accent/40 focus:border-accent/40"
+                    spellCheck={false}
+                    placeholder="owner/repo"
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <div className="flex flex-1 flex-col gap-2">
+                    <label className="text-[11px] font-medium uppercase tracking-wide text-text-dim">Base Branch</label>
+                    <input
+                      value={devContainerBaseBranch}
+                      onChange={(e) => setDevContainerBaseBranch(e.target.value)}
+                      className="rounded-lg border border-border bg-bg-tertiary px-3 py-2 text-[12.5px] text-text outline-none transition-all duration-150 focus:ring-1 focus:ring-accent/40 focus:border-accent/40"
+                      spellCheck={false}
+                      placeholder="main"
+                    />
+                  </div>
+                  <div className="flex flex-1 flex-col gap-2">
+                    <label className="text-[11px] font-medium uppercase tracking-wide text-text-dim">Project Type</label>
+                    <select
+                      value={devContainerProjectType}
+                      onChange={(e) => setDevContainerProjectType(e.target.value)}
+                      className="rounded-lg border border-border bg-bg-tertiary px-3 py-2 text-[12.5px] text-text outline-none transition-all duration-150 focus:ring-1 focus:ring-accent/40 focus:border-accent/40"
+                    >
+                      <option value="">Auto-detect</option>
+                      <option value="nextjs">Next.js</option>
+                      <option value="electron">Electron</option>
+                    </select>
                   </div>
                 </div>
               </>

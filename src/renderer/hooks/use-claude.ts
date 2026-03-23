@@ -6,6 +6,12 @@ import { useAppStore } from '~/stores/app-store'
 import { updateLeafInTree, collectLeafPanels } from '~/lib/panel-utils'
 import type { ClaudePanelConfig, ClaudeMessage, PermissionMode } from '~/stores/claude-store'
 
+const TEAMMATE_TASK_TYPES = new Set(['in_process_teammate', 'external_teammate', 'tmux_teammate'])
+function isTeammateTask(taskType?: string) {
+  if (!taskType) return false
+  return TEAMMATE_TASK_TYPES.has(taskType) || taskType.includes('teammate') || taskType.includes('subagent')
+}
+
 export function mapHistoryToMessages(history: unknown[]): ClaudeMessage[] {
   return (history as Array<Record<string, unknown>>).map((m) => {
     const msgType = m.type as string
@@ -173,6 +179,12 @@ export function useClaude(panelId: string, cwd: string) {
     if (!state.initialized) {
       const store = useClaudeStore.getState()
       store.initPanel(panelId)
+      // Load cached init result for instant availability
+      api.getCachedClaudeInitResult().then((cached) => {
+        if (cached) {
+          useClaudeStore.getState().setInitResult(panelId, cached as import('../../main/claude/types').InitializationResult)
+        }
+      })
       // Apply project-level Claude defaults
       const defaults: Partial<ClaudePanelConfig> = {}
       if (!state.config.cwd && cwd) defaults.cwd = cwd
@@ -292,13 +304,18 @@ export function useClaude(panelId: string, cwd: string) {
           case 'task-event': {
             const subtype = m.subtype as string
             if (subtype === 'task-started') {
+              const taskType = m.taskType as string | undefined
               a.startTask(panelId, {
                 taskId: m.taskId as string,
                 description: m.description as string,
-                taskType: m.taskType as string | undefined,
+                taskType,
                 prompt: m.prompt as string | undefined,
                 toolUseId: m.toolUseId as string | undefined,
                 ts: m.ts as number,
+                agentName: m.agentName as string | undefined,
+                agentType: m.agentType as string | undefined,
+                teamName: m.teamName as string | undefined,
+                isTeammate: isTeammateTask(taskType),
               })
             } else if (subtype === 'task-progress') {
               a.updateTaskProgress(panelId, m.taskId as string, {

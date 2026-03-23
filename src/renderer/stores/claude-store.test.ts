@@ -311,13 +311,13 @@ describe('setInitResult', () => {
     expect(store.getPanel('panel-1').initResult).toBeNull()
   })
 
-  it('clearSession resets initResult to null', () => {
+  it('clearSession preserves initResult', () => {
     const store = useClaudeStore.getState()
     store.initPanel('panel-1')
     store.setInitResult('panel-1', mockInitResult)
     store.clearSession('panel-1')
 
-    expect(store.getPanel('panel-1').initResult).toBeNull()
+    expect(store.getPanel('panel-1').initResult).toEqual(mockInitResult)
   })
 
   it('stores independently per panel', () => {

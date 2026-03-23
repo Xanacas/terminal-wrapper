@@ -44,6 +44,11 @@ export interface BackgroundTask {
   toolUseId?: string
   startedAt: number
   completedAt?: number
+  // Agent teams metadata
+  agentName?: string
+  agentType?: string
+  teamName?: string
+  isTeammate?: boolean
 }
 
 interface ClaudePanelConfig {
@@ -152,7 +157,7 @@ interface ClaudeStore {
   setPendingCwdChange: (panelId: string, cwd: string | null) => void
   setRestoreStatus: (panelId: string, status: 'none' | 'restoring' | 'restored' | 'error', error?: string) => void
   removePanel: (panelId: string) => void
-  startTask: (panelId: string, task: { taskId: string; description: string; taskType?: string; prompt?: string; toolUseId?: string; ts: number }) => void
+  startTask: (panelId: string, task: { taskId: string; description: string; taskType?: string; prompt?: string; toolUseId?: string; ts: number; agentName?: string; agentType?: string; teamName?: string; isTeammate?: boolean }) => void
   updateTaskProgress: (panelId: string, taskId: string, update: { description?: string; summary?: string; lastToolName?: string; usage?: BackgroundTask['usage'] }) => void
   completeTask: (panelId: string, taskId: string, result: { status: 'completed' | 'failed' | 'stopped'; summary: string; outputFile?: string; usage?: BackgroundTask['usage'] }) => void
   setInitResult: (panelId: string, data: InitializationResult) => void
@@ -300,7 +305,6 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
       pendingCwdChange: null,
       status: 'idle' as ClaudeStatus,
       backgroundTasks: new Map(),
-      initResult: null,
       config: { ...state.config },
     }))
   },
@@ -336,6 +340,10 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
         prompt: task.prompt,
         toolUseId: task.toolUseId,
         startedAt: task.ts,
+        agentName: task.agentName,
+        agentType: task.agentType,
+        teamName: task.teamName,
+        isTeammate: task.isTeammate,
       })
       return { backgroundTasks }
     })
@@ -417,6 +425,35 @@ export function getAnyInitResult(): InitializationResult | null {
     if (panel.initResult) return panel.initResult
   }
   return null
+}
+
+// ---- Agent teams state derivation ----
+
+export interface AgentTeamsState {
+  teams: Map<string, BackgroundTask[]>
+  activeCount: number
+  totalCount: number
+  hasActivity: boolean
+}
+
+export function deriveAgentTeamsState(tasks: Map<string, BackgroundTask>): AgentTeamsState | null {
+  const teammates = [...tasks.values()].filter((t) => t.isTeammate)
+  if (teammates.length === 0) return null
+
+  const teams = new Map<string, BackgroundTask[]>()
+  for (const t of teammates) {
+    const key = t.teamName ?? 'default'
+    const list = teams.get(key) ?? []
+    list.push(t)
+    teams.set(key, list)
+  }
+
+  return {
+    teams,
+    activeCount: teammates.filter((t) => t.status === 'running').length,
+    totalCount: teammates.length,
+    hasActivity: true,
+  }
 }
 
 export type { ClaudeMessage, ClaudePanelState, ClaudePanelConfig, PermissionMode, EffortLevel, ClaudeStatus, InitializationResult }

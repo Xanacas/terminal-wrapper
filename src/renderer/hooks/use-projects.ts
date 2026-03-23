@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 import { useAppStore } from '~/stores/app-store'
-import type { Project, Thread, TodoItem, QuickCommand } from '~/stores/app-store'
+import type { Project, Thread, TodoItem, QuickCommand, ThreadDevContainer } from '~/stores/app-store'
+import { useUIStore } from '~/stores/ui-store'
 import { destroyTerminal } from '~/hooks/use-terminal'
 import {
   generateId,
@@ -16,7 +17,6 @@ import {
 import type { PanelType, LeafPanel } from '~/lib/panel-utils'
 import { api } from '~/lib/ipc'
 import { useClaudeStore } from '~/stores/claude-store'
-import { useUIStore } from '~/stores/ui-store'
 
 function destroyClaudePanel(panelId: string) {
   api.destroyClaude(panelId)
@@ -144,12 +144,11 @@ export function useProjects() {
 
   // ---- Thread operations ----
 
-  const addThread = useCallback(
+  const createLocalThread = useCallback(
     async (projectId: string, name?: string) => {
       const project = getProject(projectId)
       if (!project) return
 
-      // Commands tab is always the first tab
       const commandsPanel = createLeafPanel('commands')
       const commandsTab = createTab('Commands', commandsPanel)
 
@@ -166,7 +165,50 @@ export function useProjects() {
         threads: [...project.threads, thread],
         activeThreadId: threadId
       })
-      // Also make this project active
+      await storeSetActiveProject(projectId)
+      return threadId
+    },
+    [getProject, storeUpdateProject, storeSetActiveProject]
+  )
+
+  const addThread = useCallback(
+    async (projectId: string, name?: string) => {
+      const project = getProject(projectId)
+      if (!project) return
+
+      // If devcontainers are enabled, show the modal instead
+      if (project.devContainerConfig?.enabled) {
+        useUIStore.getState().openNewThreadModal(projectId)
+        return
+      }
+
+      return createLocalThread(projectId, name)
+    },
+    [getProject, createLocalThread]
+  )
+
+  const addThreadWithContainer = useCallback(
+    async (projectId: string, name: string, devContainer: ThreadDevContainer) => {
+      const project = getProject(projectId)
+      if (!project) return
+
+      const commandsPanel = createLeafPanel('commands')
+      const commandsTab = createTab('Commands', commandsPanel)
+
+      const threadId = generateId()
+      const thread: Thread = {
+        id: threadId,
+        name,
+        tabs: [commandsTab],
+        activeTabId: commandsTab.id,
+        devContainer,
+      }
+
+      useUIStore.getState().recordThreadFocus(projectId, threadId)
+      await storeUpdateProject(projectId, {
+        threads: [...project.threads, thread],
+        activeThreadId: threadId
+      })
       await storeSetActiveProject(projectId)
       return threadId
     },
@@ -605,6 +647,8 @@ export function useProjects() {
     toggleProjectCollapsed,
     // Thread ops
     addThread,
+    createLocalThread,
+    addThreadWithContainer,
     deleteThread,
     switchThread,
     renameThread,

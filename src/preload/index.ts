@@ -144,6 +144,8 @@ const api = {
     ipcRenderer.invoke('claude:resume-session', panelId, sessionId),
   getClaudeSessionState: (panelId: string) =>
     ipcRenderer.invoke('claude:get-session-state', panelId),
+  getCachedClaudeInitResult: (): Promise<unknown> =>
+    ipcRenderer.invoke('claude:get-cached-init-result'),
   globClaudeFiles: (cwd: string, pattern: string): Promise<string[]> =>
     ipcRenderer.invoke('claude:glob-files', cwd, pattern),
   onClaudeMessage: (callback: (panelId: string, msg: unknown) => void) => {

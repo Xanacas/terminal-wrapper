@@ -2,16 +2,23 @@ import { useTerminal } from '~/hooks/use-terminal'
 import { useEffect, useState } from 'react'
 import { api } from '~/lib/ipc'
 
+export interface DockerTarget {
+  containerName: string
+  user: string
+  workdir: string
+}
+
 interface TerminalViewProps {
   projectId: string
   shellId: string
   cwd: string
   initialCommand?: string
   onOpenUrl?: (url: string) => void
+  dockerTarget?: DockerTarget
 }
 
-export function TerminalView({ projectId, shellId, cwd, initialCommand, onOpenUrl }: TerminalViewProps) {
-  const { containerRef, restart } = useTerminal({ projectId, shellId, cwd, initialCommand, onOpenUrl })
+export function TerminalView({ projectId, shellId, cwd, initialCommand, onOpenUrl, dockerTarget }: TerminalViewProps) {
+  const { containerRef, restart } = useTerminal({ projectId, shellId, cwd, initialCommand, onOpenUrl, dockerTarget })
   const [exited, setExited] = useState(false)
 
   useEffect(() => {

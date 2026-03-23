@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import type { EffortLevel, PermissionMode } from '~/stores/claude-store'
+import type { ModelInfo, AccountInfo, FastModeState, AgentInfo } from '../../../main/claude/types'
 
 interface ClaudeToolbarProps {
   config: {
@@ -12,6 +13,11 @@ interface ClaudeToolbarProps {
   inputTokens: number
   outputTokens: number
   sessionId: string | null
+  availableModels: ModelInfo[]
+  availableEffortLevels: EffortLevel[]
+  accountInfo: AccountInfo | null
+  fastModeState: FastModeState | undefined
+  agents: AgentInfo[]
   onModelChange: (model: string) => void
   onPermissionModeChange: (mode: PermissionMode) => void
   onEffortChange: (effort: EffortLevel) => void
@@ -21,12 +27,6 @@ interface ClaudeToolbarProps {
   onNewSession: () => void
 }
 
-const models = [
-  { id: 'sonnet', label: 'Sonnet' },
-  { id: 'opus', label: 'Opus' },
-  { id: 'haiku', label: 'Haiku' },
-]
-
 const permissionModes: Array<{ id: PermissionMode; label: string; desc: string }> = [
   { id: 'default', label: 'Default', desc: 'Ask for permissions' },
   { id: 'acceptEdits', label: 'Accept Edits', desc: 'Auto-approve file edits' },
@@ -34,12 +34,12 @@ const permissionModes: Array<{ id: PermissionMode; label: string; desc: string }
   { id: 'bypassPermissions', label: 'Bypass', desc: 'Skip all permission prompts' },
 ]
 
-const effortLevels: Array<{ id: EffortLevel; label: string }> = [
-  { id: 'low', label: 'lo' },
-  { id: 'medium', label: 'med' },
-  { id: 'high', label: 'hi' },
-  { id: 'max', label: 'max' },
-]
+const effortLabels: Record<EffortLevel, string> = {
+  low: 'lo',
+  medium: 'med',
+  high: 'hi',
+  max: 'max',
+}
 
 function formatTokens(n: number) {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -49,7 +49,6 @@ function formatTokens(n: number) {
 
 function truncatePath(p: string) {
   if (!p) return ''
-  // Show last 2 segments
   const sep = p.includes('/') ? '/' : '\\'
   const parts = p.split(sep).filter(Boolean)
   if (parts.length <= 2) return p
@@ -62,6 +61,11 @@ export function ClaudeToolbar({
   inputTokens,
   outputTokens,
   sessionId,
+  availableModels,
+  availableEffortLevels,
+  accountInfo,
+  fastModeState,
+  agents,
   onModelChange,
   onPermissionModeChange,
   onEffortChange,
@@ -89,7 +93,7 @@ export function ClaudeToolbar({
     return () => window.removeEventListener('mousedown', handler)
   }, [modelMenuOpen, permMenuOpen])
 
-  const currentModel = models.find((m) => m.id === config.model)
+  const currentModel = availableModels.find((m) => m.value === config.model)
   const currentPerm = permissionModes.find((m) => m.id === config.permissionMode)
 
   return (
@@ -100,28 +104,36 @@ export function ClaudeToolbar({
           onClick={() => { setModelMenuOpen(!modelMenuOpen); setPermMenuOpen(false) }}
           className="flex items-center gap-1.5 rounded-md bg-bg-secondary px-2 py-[3px] text-[11px] font-medium text-text-secondary transition-all duration-150 hover:bg-bg-hover hover:text-text"
         >
-          <span>{currentModel?.label ?? config.model}</span>
+          <span>{currentModel?.displayName ?? config.model}</span>
           <svg width="8" height="8" viewBox="0 0 8 8" fill="none" className="text-text-dim">
             <path d="M2 3l2 2 2-2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
 
         {modelMenuOpen && (
-          <div className="glass absolute left-0 top-full z-40 mt-1.5 min-w-[120px] overflow-hidden rounded-lg border border-border-bright/60 p-1 shadow-xl shadow-black/40">
-            {models.map((m) => (
+          <div className="glass absolute left-0 top-full z-40 mt-1.5 min-w-[180px] overflow-hidden rounded-lg border border-border-bright/60 p-1 shadow-xl shadow-black/40">
+            {availableModels.map((m) => (
               <button
-                key={m.id}
-                onClick={() => { onModelChange(m.id); setModelMenuOpen(false) }}
-                className={`flex w-full items-center rounded-md px-2.5 py-[5px] text-[12px] transition-all duration-150 hover:bg-bg-hover ${
-                  m.id === config.model ? 'text-accent font-medium' : 'text-text-secondary hover:text-text'
+                key={m.value}
+                onClick={() => { onModelChange(m.value); setModelMenuOpen(false) }}
+                className={`flex w-full flex-col items-start rounded-md px-2.5 py-[5px] transition-all duration-150 hover:bg-bg-hover ${
+                  m.value === config.model ? 'text-accent' : 'text-text-secondary hover:text-text'
                 }`}
               >
-                {m.id === config.model && (
-                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="mr-1.5 text-accent">
-                    <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
+                <div className="flex w-full items-center gap-1.5">
+                  {m.value === config.model && (
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="shrink-0 text-accent">
+                      <path d="M2 5l2.5 2.5L8 3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                  <span className={`text-[12px] ${m.value === config.model ? 'font-medium' : ''}`}>{m.displayName}</span>
+                  {m.supportsFastMode && (
+                    <span className="rounded bg-accent/10 px-1 py-px text-[9px] text-accent">fast</span>
+                  )}
+                </div>
+                {m.description && (
+                  <span className="mt-0.5 text-[10px] text-text-dim">{m.description}</span>
                 )}
-                {m.label}
               </button>
             ))}
           </div>
@@ -158,22 +170,36 @@ export function ClaudeToolbar({
         )}
       </div>
 
-      {/* Effort level segmented control */}
-      <div className="flex items-center overflow-hidden rounded-md bg-bg-secondary">
-        {effortLevels.map((e) => (
-          <button
-            key={e.id}
-            onClick={() => onEffortChange(e.id)}
-            className={`px-1.5 py-[3px] text-[10px] font-medium transition-all duration-150 ${
-              e.id === config.effort
-                ? 'bg-accent/20 text-accent'
-                : 'text-text-dim hover:text-text-secondary'
-            }`}
-          >
-            {e.label}
-          </button>
-        ))}
-      </div>
+      {/* Effort level segmented control — only shown when model supports it */}
+      {availableEffortLevels.length > 0 && (
+        <div className="flex items-center overflow-hidden rounded-md bg-bg-secondary">
+          {availableEffortLevels.map((level) => (
+            <button
+              key={level}
+              onClick={() => onEffortChange(level)}
+              className={`px-1.5 py-[3px] text-[10px] font-medium transition-all duration-150 ${
+                level === config.effort
+                  ? 'bg-accent/20 text-accent'
+                  : 'text-text-dim hover:text-text-secondary'
+              }`}
+            >
+              {effortLabels[level]}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Fast mode indicator */}
+      {fastModeState === 'on' && (
+        <span className="rounded bg-accent/15 px-1.5 py-[2px] text-[9px] font-semibold text-accent">
+          FAST
+        </span>
+      )}
+      {fastModeState === 'cooldown' && (
+        <span className="rounded bg-warning/15 px-1.5 py-[2px] text-[9px] font-semibold text-warning">
+          FAST (cooldown)
+        </span>
+      )}
 
       {/* CWD indicator */}
       {config.cwd && (
@@ -192,6 +218,16 @@ export function ClaudeToolbar({
       {/* Spacer */}
       <div className="flex-1" />
 
+      {/* Account info */}
+      {accountInfo?.email && (
+        <span
+          className="max-w-[120px] truncate text-[10px] text-text-dim/60"
+          title={[accountInfo.email, accountInfo.organization, accountInfo.subscriptionType].filter(Boolean).join(' · ')}
+        >
+          {accountInfo.organization ?? accountInfo.email}
+        </span>
+      )}
+
       {/* Stats */}
       {sessionId && (
         <div className="flex items-center gap-2 font-mono">
@@ -206,6 +242,16 @@ export function ClaudeToolbar({
             </span>
           )}
         </div>
+      )}
+
+      {/* Agents info */}
+      {agents.length > 0 && (
+        <span
+          className="text-[10px] text-text-dim/60"
+          title={agents.map((a) => `${a.name}: ${a.description}`).join('\n')}
+        >
+          {agents.length} agents
+        </span>
       )}
 
       {/* Settings */}

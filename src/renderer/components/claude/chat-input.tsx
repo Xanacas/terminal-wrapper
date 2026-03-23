@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
+import type { SlashCommand } from '../../../main/claude/types'
 
 interface ImageAttachment {
   id: string
@@ -12,13 +13,17 @@ interface ChatInputProps {
   onInterrupt: () => void
   isStreaming: boolean
   disabled?: boolean
+  commands?: SlashCommand[]
 }
 
-export function ChatInput({ onSend, onInterrupt, isStreaming, disabled }: ChatInputProps) {
+export function ChatInput({ onSend, onInterrupt, isStreaming, disabled, commands = [] }: ChatInputProps) {
   const [value, setValue] = useState('')
   const [images, setImages] = useState<ImageAttachment[]>([])
+  const [commandMenuOpen, setCommandMenuOpen] = useState(false)
+  const [selectedCommandIdx, setSelectedCommandIdx] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
 
   const resize = useCallback(() => {
     const el = textareaRef.current
@@ -31,6 +36,29 @@ export function ChatInput({ onSend, onInterrupt, isStreaming, disabled }: ChatIn
   useEffect(() => {
     resize()
   }, [value, resize])
+
+  // Slash command filtering
+  const commandFilter = commandMenuOpen ? value.slice(1).toLowerCase() : ''
+  const filteredCommands = commands.filter((c) =>
+    c.name.toLowerCase().startsWith(commandFilter)
+  )
+
+  // Show/hide command menu based on input
+  useEffect(() => {
+    if (value.startsWith('/') && value.indexOf(' ') === -1 && commands.length > 0) {
+      setCommandMenuOpen(true)
+      setSelectedCommandIdx(0)
+    } else {
+      setCommandMenuOpen(false)
+    }
+  }, [value, commands.length])
+
+  const selectCommand = useCallback((cmd: SlashCommand) => {
+    const newValue = `/${cmd.name} `
+    setValue(newValue)
+    setCommandMenuOpen(false)
+    textareaRef.current?.focus()
+  }, [])
 
   const addImagesFromFiles = useCallback((files: globalThis.FileList | globalThis.File[]) => {
     for (const file of files) {
@@ -119,12 +147,36 @@ export function ChatInput({ onSend, onInterrupt, isStreaming, disabled }: ChatIn
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      // Command menu keyboard navigation
+      if (commandMenuOpen && filteredCommands.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          setSelectedCommandIdx((i) => (i + 1) % filteredCommands.length)
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          setSelectedCommandIdx((i) => (i - 1 + filteredCommands.length) % filteredCommands.length)
+          return
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault()
+          selectCommand(filteredCommands[selectedCommandIdx])
+          return
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault()
+          setCommandMenuOpen(false)
+          return
+        }
+      }
+
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         handleSend()
       }
     },
-    [handleSend]
+    [handleSend, commandMenuOpen, filteredCommands, selectedCommandIdx, selectCommand]
   )
 
   const canSend = (value.trim().length > 0 || images.length > 0) && !disabled
@@ -160,69 +212,99 @@ export function ChatInput({ onSend, onInterrupt, isStreaming, disabled }: ChatIn
         </div>
       )}
 
-      <div className="flex items-end gap-2 rounded-lg bg-bg-tertiary p-1.5 ring-1 ring-border/50 transition-all duration-150 focus-within:ring-accent/40">
-        {/* Upload button */}
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled}
-          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-dim transition-all duration-150 hover:bg-bg-hover hover:text-text-secondary disabled:opacity-30"
-          title="Attach image"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-            <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="hidden"
-          onChange={handleFileSelect}
-        />
+      <div className="relative">
+        {/* Slash command autocomplete */}
+        {commandMenuOpen && filteredCommands.length > 0 && (
+          <div
+            ref={menuRef}
+            className="glass absolute bottom-full left-0 z-40 mb-1.5 max-h-[200px] w-full overflow-y-auto rounded-lg border border-border-bright/60 p-1 shadow-xl shadow-black/40"
+          >
+            {filteredCommands.map((cmd, i) => (
+              <button
+                key={cmd.name}
+                onClick={() => selectCommand(cmd)}
+                className={`flex w-full flex-col items-start rounded-md px-2.5 py-[5px] transition-all duration-150 ${
+                  i === selectedCommandIdx
+                    ? 'bg-bg-hover text-accent'
+                    : 'text-text-secondary hover:bg-bg-hover hover:text-text'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] font-medium">/{cmd.name}</span>
+                  {cmd.argumentHint && (
+                    <span className="text-[10px] text-text-dim">{cmd.argumentHint}</span>
+                  )}
+                </div>
+                <span className="text-[10px] text-text-dim">{cmd.description}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          placeholder="Send a message..."
-          rows={1}
-          disabled={disabled}
-          className="flex-1 resize-none bg-transparent px-2 py-1.5 text-[12.5px] leading-[1.5] text-text placeholder-text-dim/60 outline-none disabled:opacity-40"
-        />
+        <div className="flex items-end gap-2 rounded-lg bg-bg-tertiary p-1.5 ring-1 ring-border/50 transition-all duration-150 focus-within:ring-accent/40">
+          {/* Upload button */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-text-dim transition-all duration-150 hover:bg-bg-hover hover:text-text-secondary disabled:opacity-30"
+            title="Attach image"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+          />
 
-        <div className="flex shrink-0 items-center gap-1">
-          {showSend && (
-            <button
-              onClick={handleSend}
-              disabled={!canSend}
-              className="flex h-7 w-7 items-center justify-center rounded-md bg-accent transition-all duration-150 hover:bg-accent-hover disabled:bg-text-dim/20 disabled:cursor-default"
-              title="Send"
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path
-                  d="M6 10V2M6 2L2.5 5.5M6 2l3.5 3.5"
-                  stroke={canSend ? 'white' : 'rgba(255,255,255,0.3)'}
-                  strokeWidth="1.4"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-          )}
-          {showStop && (
-            <button
-              onClick={onInterrupt}
-              className="flex h-7 w-7 items-center justify-center rounded-md bg-danger/90 transition-all duration-150 hover:bg-danger"
-              title="Interrupt"
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <rect x="2" y="2" width="6" height="6" rx="1" fill="white" />
-              </svg>
-            </button>
-          )}
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            placeholder="Send a message..."
+            rows={1}
+            disabled={disabled}
+            className="flex-1 resize-none bg-transparent px-2 py-1.5 text-[12.5px] leading-[1.5] text-text placeholder-text-dim/60 outline-none disabled:opacity-40"
+          />
+
+          <div className="flex shrink-0 items-center gap-1">
+            {showSend && (
+              <button
+                onClick={handleSend}
+                disabled={!canSend}
+                className="flex h-7 w-7 items-center justify-center rounded-md bg-accent transition-all duration-150 hover:bg-accent-hover disabled:bg-text-dim/20 disabled:cursor-default"
+                title="Send"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path
+                    d="M6 10V2M6 2L2.5 5.5M6 2l3.5 3.5"
+                    stroke={canSend ? 'white' : 'rgba(255,255,255,0.3)'}
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            )}
+            {showStop && (
+              <button
+                onClick={onInterrupt}
+                className="flex h-7 w-7 items-center justify-center rounded-md bg-danger/90 transition-all duration-150 hover:bg-danger"
+                title="Interrupt"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                  <rect x="2" y="2" width="6" height="6" rx="1" fill="white" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

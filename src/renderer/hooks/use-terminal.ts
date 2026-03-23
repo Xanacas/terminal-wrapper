@@ -55,9 +55,14 @@ interface UseTerminalOptions {
   cwd: string
   initialCommand?: string
   onOpenUrl?: (url: string) => void
+  dockerTarget?: {
+    containerName: string
+    user: string
+    workdir: string
+  }
 }
 
-export function useTerminal({ projectId, shellId, cwd, initialCommand, onOpenUrl }: UseTerminalOptions) {
+export function useTerminal({ projectId, shellId, cwd, initialCommand, onOpenUrl, dockerTarget }: UseTerminalOptions) {
   const containerRef = useRef<HTMLDivElement>(null)
   const onOpenUrlRef = useRef(onOpenUrl)
   onOpenUrlRef.current = onOpenUrl
@@ -231,13 +236,24 @@ export function useTerminal({ projectId, shellId, cwd, initialCommand, onOpenUrl
             buffering = true
           }
 
-          api.spawnTerminal(
-            projectId,
-            shellId,
-            cwd,
-            currentEntry.terminal.cols,
-            currentEntry.terminal.rows
-          )
+          if (dockerTarget) {
+            api.spawnDockerTerminal(
+              projectId,
+              dockerTarget.containerName,
+              dockerTarget.user,
+              dockerTarget.workdir,
+              currentEntry.terminal.cols,
+              currentEntry.terminal.rows
+            )
+          } else {
+            api.spawnTerminal(
+              projectId,
+              shellId,
+              cwd,
+              currentEntry.terminal.cols,
+              currentEntry.terminal.rows
+            )
+          }
 
           // Safety: flush after 3s max even if shell is still printing
           if (buffering) {
@@ -276,7 +292,11 @@ export function useTerminal({ projectId, shellId, cwd, initialCommand, onOpenUrl
     const entry = registry.get(projectId)
     if (!entry) return
     entry.terminal.clear()
-    api.spawnTerminal(projectId, shellId, cwd, entry.terminal.cols, entry.terminal.rows)
+    if (dockerTarget) {
+      api.spawnDockerTerminal(projectId, dockerTarget.containerName, dockerTarget.user, dockerTarget.workdir, entry.terminal.cols, entry.terminal.rows)
+    } else {
+      api.spawnTerminal(projectId, shellId, cwd, entry.terminal.cols, entry.terminal.rows)
+    }
 
     // Re-inject initial command after shell starts
     if (initialCommand) {
@@ -290,7 +310,7 @@ export function useTerminal({ projectId, shellId, cwd, initialCommand, onOpenUrl
         }, 100)
       })
     }
-  }, [projectId, shellId, cwd, initialCommand])
+  }, [projectId, shellId, cwd, initialCommand, dockerTarget])
 
   return { containerRef, fit, restart }
 }

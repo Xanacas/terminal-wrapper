@@ -39,6 +39,37 @@ export function spawnPty(
   instances.set(id, { process: proc, shellInfo: shell })
 }
 
+export function spawnDockerPty(
+  id: string,
+  containerName: string,
+  user: string,
+  workdir: string,
+  cols: number,
+  rows: number,
+  onData: (data: string) => void,
+  onExit: (exitCode: number, signal?: number) => void
+): void {
+  killPty(id)
+
+  const proc = pty.spawn('docker', [
+    'exec', '-it', '-u', user, '-w', workdir,
+    `${containerName}-app-1`, 'bash',
+  ], {
+    name: 'xterm-256color',
+    cols,
+    rows,
+    env: { ...process.env } as Record<string, string>,
+  })
+
+  proc.onData((data) => onData(data))
+  proc.onExit(({ exitCode, signal }) => {
+    instances.delete(id)
+    onExit(exitCode, signal)
+  })
+
+  instances.set(id, { process: proc, shellInfo: { id: 'docker-bash', name: 'Docker Bash', path: 'docker' } })
+}
+
 export function writePty(id: string, data: string): void {
   instances.get(id)?.process.write(data)
 }

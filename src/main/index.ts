@@ -32,6 +32,10 @@ app.whenReady().then(() => {
       setWebContents(wc)
       setDevContainerWebContents(wc)
     })
+    // Open DevTools in dev mode
+    if (!app.isPackaged) {
+      wc.openDevTools({ mode: 'detach' })
+    }
   }
 
   const sendShortcut = (channel: string) => {

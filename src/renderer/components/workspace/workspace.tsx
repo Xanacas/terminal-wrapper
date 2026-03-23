@@ -6,12 +6,14 @@ import { TabBar } from './tab-bar'
 import { PanelContainer } from './panel-container'
 import { ShellPicker } from './shell-picker'
 import { ProjectOverview } from './project-overview'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from '~/lib/ipc'
 import type { ShellInfo } from '~/lib/types'
 import type { PanelType, LeafPanel } from '~/lib/panel-utils'
 import { updateLeafInTree, firstLeafId, collectLeafPanels, createLeafPanel, splitPanel, createTab } from '~/lib/panel-utils'
 import { matchUrl, defaultUrlRoutingConfig } from '~/lib/url-routing'
+import { useDevContainerStore } from '~/stores/devcontainer-store'
+import { ContainerBootOverlay } from '~/components/devcontainer/container-boot-overlay'
 
 function ThreadWorkspace({
   project,
@@ -27,6 +29,21 @@ function ThreadWorkspace({
   const setFocusedPanel = useUIStore((s) => s.setFocusedPanel)
   const focusedPanelId = useUIStore((s) => s.focusedPanelId)
   const activeTab = thread.tabs.find((t) => t.id === thread.activeTabId)
+  const devContainerGlobal = useAppStore((s) => s.devContainerGlobal)
+
+  const dockerTarget = useMemo(() => {
+    if (!thread.devContainer) return undefined
+    return {
+      containerName: thread.devContainer.containerName,
+      user: devContainerGlobal?.defaultUser ?? 'node',
+      workdir: devContainerGlobal?.defaultWorkdir ?? '/workspace',
+    }
+  }, [thread.devContainer, devContainerGlobal])
+
+  const containerStatus = useDevContainerStore((s) =>
+    thread.devContainer ? s.containers.get(thread.devContainer.containerName)?.status : undefined
+  )
+  const containerReady = !thread.devContainer || containerStatus === 'running'
 
   useEffect(() => {
     if (active && activeTab) setFocusedPanel(firstLeafId(activeTab.panel))
@@ -155,7 +172,7 @@ function ThreadWorkspace({
         {thread.tabs.map((tab) => {
           const isTabActive = tab.id === thread.activeTabId
           return (
-            <div key={tab.id} className={`absolute inset-0 ${isTabActive ? '' : 'invisible'}`}>
+            <div key={tab.id} className={`absolute inset-0 ${isTabActive ? '' : 'invisible'} ${!containerReady ? 'pointer-events-none opacity-30' : ''}`}>
               <PanelContainer
                 panel={tab.panel}
                 projectId={project.id}
@@ -164,6 +181,7 @@ function ThreadWorkspace({
                 cwd={project.defaultCwd}
                 defaultShellId={project.defaultShellId}
                 active={active && isTabActive}
+                dockerTarget={dockerTarget}
                 onSplitRatioChange={handleSplitRatioChange}
                 onSetPanelType={handleSetPanelType}
                 onUrlChange={handleUrlChange}
@@ -174,6 +192,15 @@ function ThreadWorkspace({
             </div>
           )
         })}
+        {thread.devContainer && !containerReady && (
+          <ContainerBootOverlay
+            containerName={thread.devContainer.containerName}
+            branchName={thread.devContainer.branchName}
+            onCancel={() => {
+              // TODO: implement cancel (destroy container + remove thread devContainer)
+            }}
+          />
+        )}
       </div>
     </div>
   )

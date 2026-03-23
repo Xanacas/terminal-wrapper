@@ -3,6 +3,14 @@ import type { Thread } from '~/stores/app-store'
 import { collectLeafPanels } from '~/lib/panel-utils'
 import { useClaudeStore, getHighestPriorityStatus, STATUS_CONFIG } from '~/stores/claude-store'
 import type { ClaudeStatus } from '~/stores/claude-store'
+import { useDevContainerStore } from '~/stores/devcontainer-store'
+import { ContainerStatusBadge } from '~/components/devcontainer/container-status-badge'
+
+function ThreadContainerBadge({ containerName }: { containerName: string }) {
+  const status = useDevContainerStore((s) => s.containers.get(containerName)?.status)
+  if (!status) return null
+  return <ContainerStatusBadge status={status} compact />
+}
 
 interface ThreadItemProps {
   thread: Thread
@@ -103,6 +111,9 @@ export function ThreadItem({
           <span className="min-w-0 flex-1 truncate">{thread.name}</span>
         )}
         {!editing && <ThreadStatusDot thread={thread} />}
+        {!editing && thread.devContainer && (
+          <ThreadContainerBadge containerName={thread.devContainer.containerName} />
+        )}
         {!editing && thread.tabs.length > 1 && (
           <span className="ml-1 shrink-0 rounded-full bg-bg-tertiary px-[5px] py-px text-[10px] tabular-nums text-text-dim">
             {thread.tabs.length}

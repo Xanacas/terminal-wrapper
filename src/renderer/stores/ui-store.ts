@@ -11,6 +11,8 @@ interface UIStore {
   commandEditorCommandId: string | null
   // "projectId:threadId" keys, most-recently-focused first
   threadFocusOrder: string[]
+  newThreadModalProjectId: string | null
+  globalSettingsOpen: boolean
 
   setFocusedPanel: (id: string | null) => void
   openCommandPalette: () => void
@@ -24,6 +26,10 @@ interface UIStore {
   toggleProjectOverview: (projectId: string) => void
   openCommandEditor: (projectId: string | null, commandId?: string | null) => void
   closeCommandEditor: () => void
+  openNewThreadModal: (projectId: string) => void
+  closeNewThreadModal: () => void
+  openGlobalSettings: () => void
+  closeGlobalSettings: () => void
   closeAllOverlays: () => void
   recordThreadFocus: (projectId: string, threadId: string) => void
 }
@@ -38,6 +44,8 @@ export const useUIStore = create<UIStore>((set, get) => ({
   commandEditorProjectId: null,
   commandEditorCommandId: null,
   threadFocusOrder: [],
+  newThreadModalProjectId: null,
+  globalSettingsOpen: false,
 
   setFocusedPanel: (id) => set({ focusedPanelId: id }),
 
@@ -71,8 +79,20 @@ export const useUIStore = create<UIStore>((set, get) => ({
   closeCommandEditor: () =>
     set({ commandEditorOpen: false, commandEditorProjectId: null, commandEditorCommandId: null }),
 
+  openNewThreadModal: (projectId) =>
+    set({ newThreadModalProjectId: projectId }),
+
+  closeNewThreadModal: () =>
+    set({ newThreadModalProjectId: null }),
+
+  openGlobalSettings: () =>
+    set({ globalSettingsOpen: true }),
+
+  closeGlobalSettings: () =>
+    set({ globalSettingsOpen: false }),
+
   closeAllOverlays: () =>
-    set({ commandPaletteOpen: false, projectSwitcherOpen: false, projectSettingsId: null, projectOverviewId: null, commandEditorOpen: false, commandEditorProjectId: null, commandEditorCommandId: null }),
+    set({ commandPaletteOpen: false, projectSwitcherOpen: false, projectSettingsId: null, projectOverviewId: null, commandEditorOpen: false, commandEditorProjectId: null, commandEditorCommandId: null, newThreadModalProjectId: null, globalSettingsOpen: false }),
 
   recordThreadFocus: (projectId, threadId) => {
     const key = `${projectId}:${threadId}`

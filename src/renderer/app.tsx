@@ -12,6 +12,9 @@ import { ProjectSwitcher } from '~/components/command-palette/project-switcher'
 import { ProjectSettings } from '~/components/project-settings/project-settings'
 import { CommandPopover } from '~/components/quick-commands/command-popover'
 import { CommandEditor } from '~/components/quick-commands/command-editor'
+import { NewThreadModal } from '~/components/devcontainer/new-thread-modal'
+import { GlobalSettings } from '~/components/settings/global-settings'
+import { initDevContainerStore } from '~/stores/devcontainer-store'
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state = { error: null as Error | null }
@@ -51,6 +54,12 @@ export function App() {
   useEffect(() => {
     init()
   }, [init])
+
+  // Initialize devcontainer store (subscribe to IPC events + reconcile container states)
+  useEffect(() => {
+    if (!initialized) return
+    return initDevContainerStore()
+  }, [initialized])
 
   const shortcutHandlers = useMemo(() => {
     const switchToThreadByIndex = (idx: number) => {
@@ -173,6 +182,8 @@ export function App() {
         <ProjectSettings />
         <CommandPopover />
         <CommandEditor />
+        <NewThreadModal />
+        <GlobalSettings />
       </div>
     </ErrorBoundary>
   )

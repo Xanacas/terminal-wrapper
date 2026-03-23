@@ -178,6 +178,49 @@ export interface ClaudeTaskEvent {
   lastToolName?: string
   usage?: { totalTokens: number; toolUses: number; durationMs: number }
   ts: number
+  // Agent teams metadata
+  agentName?: string
+  agentType?: string
+  teamName?: string
+}
+
+// ---- Agent teams helpers ----
+
+export interface TeamToolMeta {
+  agentName?: string
+  agentType?: string
+  teamName?: string
+}
+
+const TEAM_TOOL_NAMES = new Set([
+  'Agent', 'SendMessage', 'TeamCreate', 'TeamDelete',
+  'TaskCreate', 'TaskUpdate', 'TaskDelete', 'TaskGet', 'TaskList',
+])
+
+export function isTeamTool(toolName: string) {
+  return TEAM_TOOL_NAMES.has(toolName) || toolName.toLowerCase().includes('subagent')
+}
+
+export function extractTeamToolMeta(toolName: string, input: Record<string, unknown>): TeamToolMeta | null {
+  if (!isTeamTool(toolName)) return null
+  return {
+    agentName: (input.name ?? input.to ?? input.recipient) as string | undefined,
+    agentType: (input.subagent_type) as string | undefined,
+    teamName: (input.team_name) as string | undefined,
+  }
+}
+
+const TEAMMATE_TASK_TYPES = new Set([
+  'in_process_teammate',
+  'external_teammate',
+  'tmux_teammate',
+])
+
+export function isTeammateTaskType(taskType?: string) {
+  if (!taskType) return false
+  return TEAMMATE_TASK_TYPES.has(taskType)
+    || taskType.includes('teammate')
+    || taskType.includes('subagent')
 }
 
 export interface ClaudeInitResultMessage {

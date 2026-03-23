@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { toolIcons, getToolSummary, renderOutput } from '~/lib/tool-utils'
 
 interface ToolUseBlockProps {
   toolName: string
@@ -8,39 +9,8 @@ interface ToolUseBlockProps {
   isError?: boolean
 }
 
-const toolIcons: Record<string, string> = {
-  Bash: '>_',
-  Read: 'R',
-  Write: 'W',
-  Edit: 'E',
-  Grep: 'G',
-  Glob: '*',
-}
-
 function getToolLabel(toolName: string) {
   return toolName
-}
-
-function getToolSummary(toolName: string, input: unknown) {
-  const inp = input as Record<string, unknown> | undefined
-  if (!inp) return null
-
-  switch (toolName) {
-    case 'Bash':
-      return inp.command as string | undefined
-    case 'Read':
-      return inp.file_path as string | undefined
-    case 'Write':
-      return inp.file_path as string | undefined
-    case 'Edit':
-      return inp.file_path as string | undefined
-    case 'Grep':
-      return inp.pattern as string | undefined
-    case 'Glob':
-      return inp.pattern as string | undefined
-    default:
-      return null
-  }
 }
 
 function renderSpecializedInput(toolName: string, input: unknown) {
@@ -122,32 +92,6 @@ function renderSpecializedInput(toolName: string, input: unknown) {
   }
 }
 
-function renderOutput(toolName: string, output: string, isError?: boolean) {
-  const textColor = isError ? 'text-danger' : 'text-text-secondary'
-  const bgColor = isError ? 'bg-danger/5' : 'bg-bg-tertiary'
-
-  // For file search tools, render as a file list
-  if ((toolName === 'Grep' || toolName === 'Glob') && !isError) {
-    const lines = output.split('\n').filter(Boolean)
-    if (lines.length > 0 && lines.every((l) => l.includes('/') || l.includes('\\'))) {
-      return (
-        <div className="max-h-[200px] overflow-auto rounded-md bg-bg-tertiary p-2.5">
-          {lines.map((line, i) => (
-            <div key={i} className="font-mono text-[11px] leading-[1.6] text-text-secondary">
-              {line}
-            </div>
-          ))}
-        </div>
-      )
-    }
-  }
-
-  return (
-    <pre className={`max-h-[300px] overflow-auto rounded-md ${bgColor} p-2.5 text-[11px] font-mono leading-[1.6] ${textColor}`}>
-      {output}
-    </pre>
-  )
-}
 
 export function ToolUseBlock({ toolName, toolUseId: _toolUseId, input, output, isError }: ToolUseBlockProps) {
   const [expanded, setExpanded] = useState(false)

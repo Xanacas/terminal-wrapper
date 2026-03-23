@@ -1,8 +1,35 @@
 import { spawn } from 'child_process'
 import { join } from 'path'
+import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { app, type WebContents } from 'electron'
-import type { ClaudeSessionConfig, ClaudeSessionSummary, DockerTarget } from './types'
+import type { ClaudeSessionConfig, ClaudeSessionSummary, DockerTarget, InitializationResult, TeamToolMeta } from './types'
+import { isTeamTool, extractTeamToolMeta } from './types'
 import * as logger from '../logger'
+
+// ---- InitResult cache ----
+
+function getInitCachePath(): string {
+  return join(app.getPath('userData'), 'claude-init-cache.json')
+}
+
+function saveInitResultCache(data: InitializationResult): void {
+  try {
+    const dir = app.getPath('userData')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(getInitCachePath(), JSON.stringify(data), 'utf-8')
+  } catch { /* best-effort */ }
+}
+
+export function getCachedInitResult(): InitializationResult | null {
+  try {
+    const raw = readFileSync(getInitCachePath(), 'utf-8')
+    return JSON.parse(raw) as InitializationResult
+  } catch {
+    return null
+  }
+}
+
+// ---- Process spawning ----
 
 interface SpawnOpts {
   command: string
@@ -135,8 +162,9 @@ export async function fetchInitializationResult(query: SDKQuery): Promise<import
       debugLog('[claude] initializationResult() returned falsy:', data)
       return null
     }
-    const result = data as unknown as import('./types').InitializationResult
+    const result = data as unknown as InitializationResult
     debugLog('[claude] initializationResult parsed. models:', result.models?.length, 'commands:', result.commands?.length, 'account:', JSON.stringify(result.account))
+    saveInitResultCache(result)
     return result
   } catch (err) {
     debugLog('[claude] initializationResult() failed:', String(err))
@@ -163,6 +191,7 @@ interface ClaudeSession {
   inputTokens: number
   outputTokens: number
   pendingPermissions: Map<string, PermissionResolver>
+  teamToolMeta: Map<string, TeamToolMeta>
 }
 
 const sessions = new Map<string, ClaudeSession>()
@@ -214,6 +243,7 @@ export async function createSession(
     inputTokens: 0,
     outputTokens: 0,
     pendingPermissions: new Map(),
+    teamToolMeta: new Map(),
   }
 
   sessions.set(panelId, session)
@@ -349,11 +379,13 @@ async function startNewQuery(
     cwd: config.cwd,
     includePartialMessages: true,
     enableFileCheckpointing: true,
+    settingSources: ['user', 'project', 'local'],
     canUseTool,
     spawnClaudeCodeProcess: getSpawnClaudeCodeProcess(config.docker),
     toolConfig: {
       askUserQuestion: { previewFormat: 'html' },
     },
+    agentProgressSummaries: true,
   }
 
   if (config.maxTurns) queryOptions.maxTurns = config.maxTurns
@@ -460,6 +492,13 @@ async function processQuery(panelId: string, session: ClaudeSession) {
               })
 
               logger.logToolUse(panelId, block.name as string, toolId, block.input)
+
+              // Track team metadata from team-related tool calls
+              const toolName = block.name as string
+              if (isTeamTool(toolName)) {
+                const meta = extractTeamToolMeta(toolName, block.input as Record<string, unknown>)
+                if (meta) session.teamToolMeta.set(toolId, meta)
+              }
             }
           }
         }
@@ -548,15 +587,30 @@ async function processQuery(panelId: string, session: ClaudeSession) {
         logger.logSessionMeta(panelId, { model: session.config.model, costUsd: session.costUsd, inputTokens: session.inputTokens, outputTokens: session.outputTokens })
       } else if (msg.type === 'system') {
         const subtype = msg.subtype as string
-        if (subtype === 'task_started' || subtype === 'task_progress' || subtype === 'task_notification') {
+        if (subtype === 'local_command_output') {
+          const content = msg.content as string
+          if (content) {
+            send('claude:message', panelId, {
+              type: 'text',
+              role: 'assistant',
+              content,
+              ts: Date.now(),
+            })
+          }
+        } else if (subtype === 'task_started' || subtype === 'task_progress' || subtype === 'task_notification') {
           const rawUsage = msg.usage as { total_tokens: number; tool_uses: number; duration_ms: number } | undefined
+          const toolUseId = msg.tool_use_id as string | undefined
+
+          // Correlate task events with team metadata from the originating tool call
+          const teamMeta = toolUseId ? session.teamToolMeta.get(toolUseId) : undefined
+
           send('claude:message', panelId, {
             type: 'task-event',
             subtype: subtype === 'task_started' ? 'task-started'
                    : subtype === 'task_progress' ? 'task-progress'
                    : 'task-notification',
             taskId: msg.task_id as string,
-            toolUseId: msg.tool_use_id as string | undefined,
+            toolUseId,
             description: msg.description as string,
             taskType: msg.task_type as string | undefined,
             prompt: msg.prompt as string | undefined,
@@ -570,6 +624,10 @@ async function processQuery(panelId: string, session: ClaudeSession) {
               durationMs: rawUsage.duration_ms,
             } : undefined,
             ts: Date.now(),
+            // Agent teams metadata
+            agentName: teamMeta?.agentName,
+            agentType: teamMeta?.agentType,
+            teamName: teamMeta?.teamName,
           })
         }
       }

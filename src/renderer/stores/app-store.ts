@@ -12,11 +12,17 @@ export interface TodoItem {
   threadId: string | null
 }
 
+export interface ThreadDevContainer {
+  containerName: string
+  branchName: string
+}
+
 export interface Thread {
   id: string
   name: string
   tabs: Tab[]
   activeTabId: string
+  devContainer?: ThreadDevContainer
 }
 
 export interface QuickCommand {
@@ -60,6 +66,19 @@ export interface Project {
   }
   todos?: TodoItem[]
   quickCommands?: QuickCommand[]
+  devContainerConfig?: {
+    enabled: boolean
+    githubRepo: string
+    baseBranch?: string
+    projectType?: string
+  }
+}
+
+export interface DevContainerGlobalConfig {
+  templatePath: string
+  devcontainersRoot: string
+  defaultUser: string
+  defaultWorkdir: string
 }
 
 export interface AppState {
@@ -69,6 +88,7 @@ export interface AppState {
   isMaximized: boolean
   quickCommands?: QuickCommand[]
   detailedLogging?: boolean
+  devContainerGlobal?: DevContainerGlobalConfig
 }
 
 interface AppStore extends AppState {
