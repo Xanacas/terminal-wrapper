@@ -1,8 +1,5 @@
 import { create } from 'zustand'
-import type { InitializationResult, ModelInfo, SlashCommand, AgentInfo, AccountInfo, FastModeState, EffortLevel as EffortLevelType } from '../../main/claude/types'
-
-type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions' | 'dontAsk'
-type EffortLevel = 'low' | 'medium' | 'high' | 'max'
+import type { InitializationResult, ModelInfo, SlashCommand, AgentInfo, AccountInfo, FastModeState, PermissionMode, EffortLevel } from '../../main/claude/types'
 type ClaudeStatus = 'idle' | 'running' | 'planning' | 'action-needed' | 'waiting' | 'done' | 'planned'
 
 const STATUS_PRIORITY: Record<ClaudeStatus, number> = {
@@ -40,6 +37,11 @@ export interface AgentToolCall {
   ts: number
 }
 
+export interface AgentStatusEntry {
+  summary: string
+  ts: number
+}
+
 export interface BackgroundTask {
   taskId: string
   description: string
@@ -47,6 +49,7 @@ export interface BackgroundTask {
   taskType?: string
   prompt?: string
   summary?: string
+  summaryHistory?: AgentStatusEntry[]
   lastToolName?: string
   usage?: { totalTokens: number; toolUses: number; durationMs: number }
   outputFile?: string
@@ -114,6 +117,7 @@ interface ClaudePanelState {
   restoreError?: string
   backgroundTasks: Map<string, BackgroundTask>
   toolUseToTaskId: Map<string, string>
+  pendingToolCalls: Map<string, AgentToolCall>
   initResult: InitializationResult | null
 }
 
@@ -146,6 +150,7 @@ const defaultPanelState: ClaudePanelState = {
   restoreError: undefined,
   backgroundTasks: new Map(),
   toolUseToTaskId: new Map(),
+  pendingToolCalls: new Map(),
   initResult: null,
 }
 
@@ -322,6 +327,7 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
       status: 'idle' as ClaudeStatus,
       backgroundTasks: new Map(),
       toolUseToTaskId: new Map(),
+      pendingToolCalls: new Map(),
       config: { ...state.config },
     }))
   },
@@ -371,7 +377,12 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
       const existing = state.backgroundTasks.get(taskId)
       if (!existing) return {}
       const backgroundTasks = new Map(state.backgroundTasks)
-      backgroundTasks.set(taskId, { ...existing, ...update })
+      // Accumulate summaries into history instead of overwriting
+      let summaryHistory = existing.summaryHistory ?? []
+      if (update.summary && update.summary !== existing.summary) {
+        summaryHistory = [...summaryHistory, { summary: update.summary, ts: Date.now() }]
+      }
+      backgroundTasks.set(taskId, { ...existing, ...update, summaryHistory })
       return { backgroundTasks }
     })
   },
@@ -381,10 +392,16 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
       const existing = state.backgroundTasks.get(taskId)
       if (!existing) return {}
       const backgroundTasks = new Map(state.backgroundTasks)
+      // Add final summary to history
+      let summaryHistory = existing.summaryHistory ?? []
+      if (result.summary && result.summary !== existing.summary) {
+        summaryHistory = [...summaryHistory, { summary: result.summary, ts: Date.now() }]
+      }
       backgroundTasks.set(taskId, {
         ...existing,
         status: result.status,
         summary: result.summary,
+        summaryHistory,
         outputFile: result.outputFile,
         usage: result.usage,
         completedAt: Date.now(),
@@ -407,6 +424,21 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
     updatePanel(set, panelId, (state) => {
       const toolUseToTaskId = new Map(state.toolUseToTaskId)
       toolUseToTaskId.set(toolUseId, taskId)
+
+      // Retroactively add any pending tool call that was seen before this link arrived
+      const pending = state.pendingToolCalls.get(toolUseId)
+      let backgroundTasks = state.backgroundTasks
+      if (pending) {
+        const task = state.backgroundTasks.get(taskId)
+        if (task && !task.toolCalls?.some((tc) => tc.toolUseId === toolUseId)) {
+          backgroundTasks = new Map(state.backgroundTasks)
+          backgroundTasks.set(taskId, { ...task, toolCalls: [...(task.toolCalls ?? []), pending] })
+        }
+        const pendingToolCalls = new Map(state.pendingToolCalls)
+        pendingToolCalls.delete(toolUseId)
+        return { toolUseToTaskId, backgroundTasks, pendingToolCalls }
+      }
+
       return { toolUseToTaskId }
     })
   },

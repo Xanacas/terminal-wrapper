@@ -408,8 +408,6 @@ export async function sendMessage(
 function debugLog(...args: unknown[]) {
   const msg = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ')
   console.log(msg)
-  // Also write to file for guaranteed visibility
-  try { require('fs').appendFileSync(require('path').join(require('os').tmpdir(), 'claude-init-debug.log'), `${new Date().toISOString()} ${msg}\n`) } catch { /* */ }
 }
 
 async function startNewQuery(
@@ -866,6 +864,12 @@ export function destroySession(panelId: string) {
   logger.unregisterPanelContext(panelId)
   const session = sessions.get(panelId)
   if (!session) return
+
+  // Abort warm/prefetch query if still in-flight
+  if (session.warmQuery) {
+    session.warmQuery.abortController.abort()
+    session.warmQuery = undefined
+  }
 
   if (session.activeQuery) {
     session.activeQuery.interrupt().catch(() => {})

@@ -1,7 +1,7 @@
 import { ipcMain, app, shell } from 'electron'
 import { homedir } from 'os'
 import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from 'fs'
-import { join } from 'path'
+import { join, resolve, isAbsolute } from 'path'
 import { spawnPty, spawnDockerPty, writePty, resizePty, killPty } from './terminal/pty-manager'
 import { detectShells } from './terminal/shell-detector'
 import * as browserManager from './browser/browser-manager'
@@ -9,6 +9,21 @@ import * as store from './store'
 import * as claudeSessionManager from './claude/claude-session-manager'
 import * as logger from './logger'
 import * as devcontainerManager from './devcontainer/devcontainer-manager'
+
+/**
+ * Validates an IPC path argument — must be absolute with no null bytes.
+ * Returns the resolved path or throws.
+ */
+function validateIpcPath(input: string): string {
+  if (typeof input !== 'string' || input.includes('\0')) {
+    throw new Error('Invalid path')
+  }
+  const resolved = resolve(input)
+  if (!isAbsolute(resolved)) {
+    throw new Error('Path must be absolute')
+  }
+  return resolved
+}
 
 export function registerIpcHandlers(): void {
   // ---- System ----
@@ -19,7 +34,8 @@ export function registerIpcHandlers(): void {
   // ---- Package.json scripts ----
   ipcMain.handle('pkg:scripts', (_event, cwd: string) => {
     try {
-      const raw = readFileSync(join(cwd, 'package.json'), 'utf-8')
+      const safeCwd = validateIpcPath(cwd)
+      const raw = readFileSync(join(safeCwd, 'package.json'), 'utf-8')
       const pkg = JSON.parse(raw)
       return pkg.scripts ?? {}
     } catch {
@@ -260,12 +276,27 @@ export function registerIpcHandlers(): void {
     return claudeSessionManager.createSession(panelId, config as Parameters<typeof claudeSessionManager.createSession>[1])
   })
 
-  ipcMain.handle('claude:send-message', (_event, panelId: string, text: string, images?: Array<{ base64: string; mediaType: string }>) => {
-    // Fire and forget — messages stream back via events
-    claudeSessionManager.sendMessage(panelId, text, images).catch((err) => {
-      console.error('Claude sendMessage error:', err)
-    })
-    return { ok: true }
+  ipcMain.handle('claude:send-message', async (_event, panelId: string, text: string, images?: Array<{ base64: string; mediaType: string }>) => {
+    try {
+      // Fire and forget the streaming — but catch launch errors
+      claudeSessionManager.sendMessage(panelId, text, images).catch((err) => {
+        console.error('Claude sendMessage error:', err)
+        // Send error back to renderer so it can clear the running state
+        _event.sender.send('claude:session-ended', panelId, {
+          type: 'session-ended',
+          reason: 'error',
+          error: err instanceof Error ? err.message : String(err),
+          costUsd: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          ts: Date.now(),
+        })
+      })
+      return { ok: true }
+    } catch (err) {
+      console.error('Claude sendMessage launch error:', err)
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
   })
 
   ipcMain.on('claude:interrupt', (_event, panelId: string) => {

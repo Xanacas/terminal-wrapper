@@ -173,10 +173,19 @@ function AgentDetail({
         </span>
       )}
 
-      {/* Summary */}
-      {task.summary && (
+      {/* Status update history */}
+      {task.summaryHistory && task.summaryHistory.length > 0 ? (
+        <div className="space-y-0.5 max-h-[100px] overflow-y-auto">
+          {task.summaryHistory.map((entry, i) => (
+            <div key={i} className="flex gap-2 text-[11px]">
+              <span className="shrink-0 text-text-dim/50">{i + 1}.</span>
+              <span className="text-text-secondary">{entry.summary}</span>
+            </div>
+          ))}
+        </div>
+      ) : task.summary ? (
         <div className="text-[11px] text-text-secondary">{task.summary}</div>
-      )}
+      ) : null}
 
       {/* Stats */}
       <div className="flex items-center gap-3 text-[10px] text-text-dim">

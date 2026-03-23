@@ -141,8 +141,25 @@ function AgentTaskDetail({ task }: { task: BackgroundTask }) {
         )}
       </div>
 
-      {/* Summary */}
-      {task.summary && (
+      {/* Status update history */}
+      {task.summaryHistory && task.summaryHistory.length > 0 && (
+        <div className="space-y-1">
+          <div className="text-[10px] font-medium uppercase tracking-wider text-text-dim">
+            Status updates ({task.summaryHistory.length})
+          </div>
+          <div className="max-h-[120px] space-y-0.5 overflow-y-auto">
+            {task.summaryHistory.map((entry, i) => (
+              <div key={i} className="flex gap-2 text-[11px]">
+                <span className="shrink-0 text-text-dim/50">{i + 1}.</span>
+                <span className="text-text-secondary">{entry.summary}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Current summary (if no history yet) */}
+      {task.summary && (!task.summaryHistory || task.summaryHistory.length === 0) && (
         <div className="text-[11px] text-text-secondary">{task.summary}</div>
       )}
 
