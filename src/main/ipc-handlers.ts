@@ -298,6 +298,10 @@ export function registerIpcHandlers(): void {
     return claudeSessionManager.getSessionHistory(sessionId)
   })
 
+  ipcMain.handle('claude:get-session-state', (_event, panelId: string) => {
+    return claudeSessionManager.getSessionState(panelId)
+  })
+
   ipcMain.handle('claude:resume-session', (_event, panelId: string, sessionId: string) => {
     claudeSessionManager.resumeSession(panelId, sessionId)
     return { ok: true }

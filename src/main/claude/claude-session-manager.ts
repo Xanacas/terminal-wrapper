@@ -592,6 +592,28 @@ export function destroySession(panelId: string) {
   sessions.delete(panelId)
 }
 
+export function getSessionState(panelId: string) {
+  const session = sessions.get(panelId)
+  if (!session) return null
+  return {
+    sdkSessionId: session.sdkSessionId ?? null,
+    costUsd: session.costUsd,
+    inputTokens: session.inputTokens,
+    outputTokens: session.outputTokens,
+    model: session.config.model,
+    permissionMode: session.config.permissionMode,
+    isActive: session.activeQuery !== null,
+  }
+}
+
+export function getAllSessionIds() {
+  const result: Array<{ panelId: string; sdkSessionId: string }> = []
+  for (const [panelId, session] of sessions) {
+    if (session.sdkSessionId) result.push({ panelId, sdkSessionId: session.sdkSessionId })
+  }
+  return result
+}
+
 export function destroyAll() {
   const ids = [...sessions.keys()]
   for (const panelId of ids) {

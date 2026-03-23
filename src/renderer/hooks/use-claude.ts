@@ -2,7 +2,119 @@ import { useEffect, useCallback, useRef } from 'react'
 import { api } from '~/lib/ipc'
 import { useClaudeStore } from '~/stores/claude-store'
 import { useAppStore } from '~/stores/app-store'
-import type { ClaudePanelConfig, PermissionMode } from '~/stores/claude-store'
+import { updateLeafInTree, collectLeafPanels } from '~/lib/panel-utils'
+import type { ClaudePanelConfig, ClaudeMessage, PermissionMode } from '~/stores/claude-store'
+
+export function mapHistoryToMessages(history: unknown[]): ClaudeMessage[] {
+  return (history as Array<Record<string, unknown>>).map((m) => {
+    const msgType = m.type as string
+    const content = m.message as Record<string, unknown> | undefined
+    let text = ''
+    if (content?.content) {
+      if (typeof content.content === 'string') {
+        text = content.content
+      } else if (Array.isArray(content.content)) {
+        text = (content.content as Array<Record<string, unknown>>)
+          .filter((b) => b.type === 'text')
+          .map((b) => b.text as string)
+          .join('\n')
+      }
+    }
+    return {
+      id: (m.uuid as string) ?? globalThis.crypto.randomUUID(),
+      type: msgType as 'user' | 'assistant',
+      content: text,
+      ts: Date.now(),
+    }
+  })
+}
+
+function persistClaudeSessionId(panelId: string, sessionId: string) {
+  const appState = useAppStore.getState()
+  for (const project of appState.projects) {
+    for (const thread of project.threads) {
+      for (const tab of thread.tabs) {
+        const found = collectLeafPanels(tab.panel).find((l) => l.id === panelId)
+        if (found) {
+          const newRoot = updateLeafInTree(tab.panel, panelId, { claudeSessionId: sessionId || undefined })
+          const newTabs = thread.tabs.map((t) => (t.id === tab.id ? { ...t, panel: newRoot } : t))
+          const newThreads = project.threads.map((t) => (t.id === thread.id ? { ...t, tabs: newTabs } : t))
+          appState.updateProject(project.id, { threads: newThreads })
+          return
+        }
+      }
+    }
+  }
+}
+
+export function getPersistedSessionId(panelId: string): string | null {
+  const appState = useAppStore.getState()
+  for (const project of appState.projects) {
+    for (const thread of project.threads) {
+      for (const tab of thread.tabs) {
+        const leaf = collectLeafPanels(tab.panel).find((l) => l.id === panelId)
+        if (leaf?.claudeSessionId) return leaf.claudeSessionId
+      }
+    }
+  }
+  return null
+}
+
+async function restoreSession(panelId: string) {
+  const store = useClaudeStore.getState()
+
+  // PATH 1: Hot reload — main process may still have the session
+  try {
+    const mainState = await api.getClaudeSessionState(panelId)
+    if (mainState?.sdkSessionId) {
+      store.setRestoreStatus(panelId, 'restoring')
+      const history = await api.getClaudeSessionHistory(mainState.sdkSessionId)
+      const messages = mapHistoryToMessages(history)
+      store.loadSessionHistory(panelId, messages, mainState.sdkSessionId)
+      store.setSessionMeta(panelId, {
+        sessionId: mainState.sdkSessionId,
+        model: mainState.model,
+        permissionMode: mainState.permissionMode as PermissionMode,
+        costUsd: mainState.costUsd,
+        inputTokens: mainState.inputTokens,
+        outputTokens: mainState.outputTokens,
+      })
+      store.setStatus(panelId, mainState.isActive ? 'running' : 'done')
+      store.setRestoreStatus(panelId, 'restored')
+      return
+    }
+  } catch {
+    // Fall through to path 2
+  }
+
+  // PATH 2: Full restart — read claudeSessionId from persisted panel
+  const persistedId = getPersistedSessionId(panelId)
+  if (!persistedId) {
+    store.setRestoreStatus(panelId, 'none')
+    return
+  }
+
+  store.setRestoreStatus(panelId, 'restoring')
+  try {
+    const history = await api.getClaudeSessionHistory(persistedId)
+    const messages = mapHistoryToMessages(history)
+    store.loadSessionHistory(panelId, messages, persistedId)
+    // Create backend session + set resume ID
+    const panelConfig = store.getPanel(panelId).config
+    const project = useAppStore.getState().getActiveProject()
+    const thread = project?.threads.find((t) => t.id === project.activeThreadId)
+    await api.createClaudeSession(panelId, {
+      ...(panelConfig as unknown as Record<string, unknown>),
+      projectName: project?.name ?? 'Unknown',
+      threadName: thread?.name ?? 'Unknown',
+    })
+    await api.resumeClaudeSession(panelId, persistedId)
+    store.setStatus(panelId, 'done')
+    store.setRestoreStatus(panelId, 'restored')
+  } catch (err) {
+    store.setRestoreStatus(panelId, 'error', err instanceof Error ? err.message : 'Failed to restore session')
+  }
+}
 
 export function useClaude(panelId: string, cwd: string) {
   const panel = useClaudeStore((s) => s.panels.get(panelId))
@@ -38,6 +150,8 @@ export function useClaude(panelId: string, cwd: string) {
     initialized: false,
     settingsOpen: false,
     historyOpen: false,
+    restoreStatus: 'none' as const,
+    restoreError: undefined as string | undefined,
   }
 
   // Track whether we're accumulating stream deltas
@@ -64,6 +178,9 @@ export function useClaude(panelId: string, cwd: string) {
         defaults.docker = projectClaudeConfig.docker
       }
       if (Object.keys(defaults).length > 0) store.updateConfig(panelId, defaults)
+
+      // Restore previous session if available
+      restoreSession(panelId)
     }
   }, [panelId, state.initialized, state.config.cwd, cwd, projectClaudeConfig, activeThreadDevContainer, devContainerGlobal])
 
@@ -155,6 +272,7 @@ export function useClaude(panelId: string, cwd: string) {
             inputTokens: m.inputTokens as number,
             outputTokens: m.outputTokens as number,
           })
+          persistClaudeSessionId(panelId, m.sessionId as string)
           break
       }
     })
@@ -317,6 +435,7 @@ export function useClaude(panelId: string, cwd: string) {
     store.clearSession(panelId)
     store.updateConfig(panelId, { cwd: newCwd })
     api.updateClaudeConfig(panelId, { cwd: newCwd })
+    persistClaudeSessionId(panelId, '')
   }, [panelId])
 
   const cancelCwdChange = useCallback(() => {
@@ -332,31 +451,7 @@ export function useClaude(panelId: string, cwd: string) {
   const resumeSession = useCallback(async (sessionId: string) => {
     const s = stateRef.current
     const history = await api.getClaudeSessionHistory(sessionId)
-    // Map SDK session messages to our message format
-    const messages = (history as Array<Record<string, unknown>>).map((m) => {
-      const msgType = m.type as string
-      const content = m.message as Record<string, unknown> | undefined
-      let text = ''
-
-      if (content?.content) {
-        if (typeof content.content === 'string') {
-          text = content.content
-        } else if (Array.isArray(content.content)) {
-          text = (content.content as Array<Record<string, unknown>>)
-            .filter((b) => b.type === 'text')
-            .map((b) => b.text as string)
-            .join('\n')
-        }
-      }
-
-      return {
-        id: (m.uuid as string) ?? globalThis.crypto.randomUUID(),
-        type: msgType as 'user' | 'assistant',
-        content: text,
-        ts: Date.now(),
-      }
-    })
-
+    const messages = mapHistoryToMessages(history)
     useClaudeStore.getState().loadSessionHistory(panelId, messages, sessionId)
     // Create a backend session first, then set the resume ID on it
     await api.createClaudeSession(panelId, s.config as unknown as Record<string, unknown>)
@@ -378,10 +473,13 @@ export function useClaude(panelId: string, cwd: string) {
   const newSession = useCallback(() => {
     api.destroyClaude(panelId)
     useClaudeStore.getState().clearSession(panelId)
+    persistClaudeSessionId(panelId, '')
   }, [panelId])
 
   return {
     ...state,
+    restoreStatus: state.restoreStatus,
+    restoreError: state.restoreError,
     sendMessage,
     interrupt,
     approvePermission,

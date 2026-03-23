@@ -78,6 +78,8 @@ interface ClaudePanelState {
   historyOpen: boolean
   pendingCwdChange: string | null
   status: ClaudeStatus
+  restoreStatus: 'none' | 'restoring' | 'restored' | 'error'
+  restoreError?: string
 }
 
 const defaultConfig: ClaudePanelConfig = {
@@ -105,6 +107,8 @@ const defaultPanelState: ClaudePanelState = {
   historyOpen: false,
   pendingCwdChange: null,
   status: 'idle' as ClaudeStatus,
+  restoreStatus: 'none' as const,
+  restoreError: undefined,
 }
 
 interface ClaudeStore {
@@ -125,6 +129,7 @@ interface ClaudeStore {
   clearSession: (panelId: string) => void
   setStatus: (panelId: string, status: ClaudeStatus) => void
   setPendingCwdChange: (panelId: string, cwd: string | null) => void
+  setRestoreStatus: (panelId: string, status: 'none' | 'restoring' | 'restored' | 'error', error?: string) => void
   removePanel: (panelId: string) => void
 }
 
@@ -278,6 +283,10 @@ export const useClaudeStore = create<ClaudeStore>((set, get) => ({
 
   setPendingCwdChange: (panelId, cwd) => {
     updatePanel(set, panelId, () => ({ pendingCwdChange: cwd }))
+  },
+
+  setRestoreStatus: (panelId, status, error) => {
+    updatePanel(set, panelId, () => ({ restoreStatus: status, restoreError: error }))
   },
 
   removePanel: (panelId) => {

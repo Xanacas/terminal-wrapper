@@ -5,12 +5,12 @@ if (process.env.TERMINAL_WRAPPER_USER_DATA) {
   app.setPath('userData', process.env.TERMINAL_WRAPPER_USER_DATA)
 }
 
-import { loadState } from './store'
+import { loadState, setClaudeSessionIdForPanel, flushState } from './store'
 import { createMainWindow, getRendererWebContents } from './window-manager'
 import { registerIpcHandlers, setupStoreSync } from './ipc-handlers'
 import { killAll } from './terminal/pty-manager'
 import { destroyAll } from './browser/browser-manager'
-import { setWebContents, destroyAll as destroyAllClaude } from './claude/claude-session-manager'
+import { setWebContents, destroyAll as destroyAllClaude, getAllSessionIds } from './claude/claude-session-manager'
 import { setWebContents as setDevContainerWebContents } from './devcontainer/devcontainer-manager'
 import { matchShortcut } from './shortcuts'
 import { initLogger, disposeLogger } from './logger'
@@ -54,8 +54,14 @@ app.whenReady().then(() => {
     })
   }
 
-  // Before the window closes, tell renderer to save terminal buffers
+  // Before the window closes, snapshot Claude session IDs and tell renderer to save terminal buffers
   window.on('close', () => {
+    const allSessions = getAllSessionIds()
+    for (const { panelId, sdkSessionId } of allSessions) {
+      setClaudeSessionIdForPanel(panelId, sdkSessionId)
+    }
+    flushState()
+
     const rendererWc = getRendererWebContents()
     if (rendererWc && !rendererWc.isDestroyed()) {
       rendererWc.send('terminal-buffer:save-all')

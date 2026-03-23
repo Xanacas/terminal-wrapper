@@ -57,11 +57,17 @@ export interface Tab {
   panel: Panel
 }
 
+export interface ThreadDevContainer {
+  containerName: string
+  branchName: string
+}
+
 export interface Thread {
   id: string
   name: string
   tabs: Tab[]
   activeTabId: string
+  devContainer?: ThreadDevContainer
 }
 
 export interface Project {
@@ -89,6 +95,12 @@ export interface Project {
   }
   todos?: TodoItem[]
   quickCommands?: QuickCommand[]
+  devContainerConfig?: {
+    enabled: boolean
+    githubRepo: string
+    baseBranch?: string
+    projectType?: string
+  }
 }
 
 export interface AppState {
@@ -98,6 +110,12 @@ export interface AppState {
   isMaximized: boolean
   quickCommands?: QuickCommand[]
   detailedLogging?: boolean
+  devContainerGlobal?: {
+    templatePath: string
+    devcontainersRoot: string
+    defaultUser: string
+    defaultWorkdir: string
+  }
 }
 
 const defaultState: AppState = {
@@ -252,6 +270,45 @@ function persistState(): void {
       console.error('Failed to persist state:', e)
     }
   }, 500)
+}
+
+export function flushState(): void {
+  if (persistTimer) clearTimeout(persistTimer)
+  try {
+    const configPath = getConfigPath()
+    const dir = dirname(configPath)
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+    writeFileSync(configPath, JSON.stringify(state, null, 2), 'utf-8')
+  } catch (e) {
+    console.error('Failed to flush state:', e)
+  }
+}
+
+function updateClaudeSessionInPanel(panel: Panel, panelId: string, sessionId: string): Panel {
+  if (panel.kind === 'leaf') {
+    return panel.id === panelId ? { ...panel, claudeSessionId: sessionId } : panel
+  }
+  return {
+    ...panel,
+    first: updateClaudeSessionInPanel(panel.first, panelId, sessionId),
+    second: updateClaudeSessionInPanel(panel.second, panelId, sessionId),
+  }
+}
+
+export function setClaudeSessionIdForPanel(panelId: string, sessionId: string): void {
+  state = {
+    ...state,
+    projects: state.projects.map((project) => ({
+      ...project,
+      threads: project.threads.map((thread) => ({
+        ...thread,
+        tabs: thread.tabs.map((tab) => ({
+          ...tab,
+          panel: updateClaudeSessionInPanel(tab.panel, panelId, sessionId),
+        })),
+      })),
+    })),
+  }
 }
 
 export function getState(): AppState {

@@ -136,6 +136,8 @@ const api = {
     ipcRenderer.invoke('claude:get-session-history', sessionId),
   resumeClaudeSession: (panelId: string, sessionId: string): Promise<{ ok: boolean }> =>
     ipcRenderer.invoke('claude:resume-session', panelId, sessionId),
+  getClaudeSessionState: (panelId: string) =>
+    ipcRenderer.invoke('claude:get-session-state', panelId),
   globClaudeFiles: (cwd: string, pattern: string): Promise<string[]> =>
     ipcRenderer.invoke('claude:glob-files', cwd, pattern),
   onClaudeMessage: (callback: (panelId: string, msg: unknown) => void) => {

@@ -44,6 +44,8 @@ export function ClaudeView({ panelId, cwd, onOpenUrl }: ClaudeViewProps) {
     toggleSettings,
     toggleHistory,
     newSession,
+    restoreStatus,
+    restoreError,
   } = useClaude(panelId, cwd)
 
   const handleLinkClick = useCallback(
@@ -110,6 +112,25 @@ export function ClaudeView({ panelId, cwd, onOpenUrl }: ClaudeViewProps) {
           }}
           onClose={toggleHistory}
         />
+      )}
+
+      {restoreStatus === 'restoring' && (
+        <div className="flex items-center gap-2 px-5 py-3 text-[12px] text-text-muted">
+          <span className="inline-block h-[14px] w-[3px] rounded-full bg-accent/50 animate-[pulse_1.2s_ease-in-out_infinite]" />
+          Restoring previous session...
+        </div>
+      )}
+
+      {restoreStatus === 'error' && restoreError && (
+        <div className="flex items-center gap-3 border-b border-error/20 bg-error/10 px-4 py-2.5">
+          <span className="text-[12px] text-error">Session restore failed: {restoreError}</span>
+          <button
+            onClick={newSession}
+            className="shrink-0 text-[11px] text-text-secondary hover:text-text"
+          >
+            Start fresh
+          </button>
+        </div>
       )}
 
       {!hasCwd ? (
