@@ -264,7 +264,7 @@ export function ClaudeView({ panelId, projectId, tabId, cwd, onOpenUrl }: Claude
     }
   }, [panelId])
 
-  const FORK_DESTINATION_LABELS: Record<ForkDestination, { label: string; icon: JSX.Element }> = {
+  const FORK_DESTINATION_LABELS: Record<ForkDestination, { label: string; icon: JSX.Element }> = { // eslint-disable-line no-undef
     'tab': {
       label: 'New Tab',
       icon: (

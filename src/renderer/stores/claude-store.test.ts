@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { useClaudeStore, getModelsForPanel, getEffortLevelsForModel, getSlashCommandsForPanel, getAccountInfoForPanel, getFastModeStateForPanel, getAgentsForPanel, getAnyInitResult } from './claude-store'
-import type { BackgroundTask } from './claude-store'
 import type { InitializationResult } from '../../main/claude/types'
 
 beforeEach(() => {
@@ -477,7 +476,7 @@ describe('getFastModeStateForPanel', () => {
   it('returns undefined when fast_mode_state not in initResult', () => {
     const store = useClaudeStore.getState()
     store.initPanel('panel-1')
-    const { fast_mode_state: _, ...noFastMode } = mockInitResult
+    const { fast_mode_state: _unused, ...noFastMode } = mockInitResult // eslint-disable-line @typescript-eslint/no-unused-vars
     store.setInitResult('panel-1', noFastMode as InitializationResult)
 
     expect(getFastModeStateForPanel(store.getPanel('panel-1'))).toBeUndefined()

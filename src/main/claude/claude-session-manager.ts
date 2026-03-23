@@ -60,8 +60,8 @@ interface SpawnOpts {
 }
 
 interface SpawnResult {
-  stdin: NodeJS.WritableStream
-  stdout: NodeJS.ReadableStream
+  stdin: NodeJS.WritableStream // eslint-disable-line no-undef
+  stdout: NodeJS.ReadableStream // eslint-disable-line no-undef
   readonly killed: boolean
   readonly exitCode: number | null
   kill: (signal?: string) => boolean
@@ -158,6 +158,17 @@ function getSpawnClaudeCodeProcess(docker?: DockerTarget) {
   }
   return undefined
 }
+
+// Cache the SDK module to avoid repeated dynamic imports
+let _sdkModule: typeof import('@anthropic-ai/claude-agent-sdk') | null = null
+async function getSDK() {
+  if (!_sdkModule) _sdkModule = await import('@anthropic-ai/claude-agent-sdk')
+  return _sdkModule
+}
+
+// Visible for testing — allows injecting a mock SDK module
+export function _testResetSDKCache() { _sdkModule = null }
+export function _testSetSDK(sdk: typeof import('@anthropic-ai/claude-agent-sdk')) { _sdkModule = sdk as Awaited<typeof _sdkModule> }
 
 // SDK query type — we use generic types since the SDK is loaded dynamically
 type SDKQuery = AsyncGenerator<Record<string, unknown>, void> & {
@@ -290,10 +301,11 @@ export async function createSession(
 }
 
 async function prefetchInitData(panelId: string, session: ClaudeSession) {
-  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  const sdk = await getSDK()
   const config = session.config
 
   // Empty async iterable — process starts but no message is sent
+  // eslint-disable-next-line require-yield
   async function* emptyStream(): AsyncGenerator<Record<string, unknown>, void> {
     await new Promise(() => {}) // Block forever until abort
   }
@@ -314,7 +326,7 @@ async function prefetchInitData(panelId: string, session: ClaudeSession) {
   // Must drain the generator to start the process
   const drainPromise = (async () => {
     try {
-      for await (const _msg of queryInstance) { /* drain */ }
+      for await (const _ of queryInstance) { void _ } // drain
     } catch { /* expected when aborted */ }
   })()
 
@@ -417,7 +429,7 @@ async function startNewQuery(
   images?: Array<{ base64: string; mediaType: string }>
 ) {
   debugLog(`[claude:${panelId}] >>> startNewQuery called`)
-  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  const sdk = await getSDK()
   const config = session.config
   const abortController = new AbortController() // eslint-disable-line no-undef
   session.abortController = abortController
@@ -837,7 +849,7 @@ export function updateConfig(panelId: string, updates: Partial<ClaudeSessionConf
 }
 
 export async function listPastSessions(cwd: string): Promise<ClaudeSessionSummary[]> {
-  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  const sdk = await getSDK()
   const results = await sdk.listSessions({ dir: cwd })
   return results.map((s) => ({
     sessionId: s.sessionId,
@@ -850,7 +862,7 @@ export async function listPastSessions(cwd: string): Promise<ClaudeSessionSummar
 }
 
 export async function getSessionHistory(sessionId: string) {
-  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  const sdk = await getSDK()
   return sdk.getSessionMessages(sessionId)
 }
 
@@ -935,7 +947,7 @@ export async function forkSessionFromPanel(
   if (!session) throw new Error(`No session for panel ${panelId}`)
   if (!session.sdkSessionId) throw new Error(`Session ${panelId} has no SDK session ID`)
 
-  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  const sdk = await getSDK()
   const result = await sdk.forkSession(session.sdkSessionId, {
     dir: session.config.cwd,
     upToMessageId: options?.upToMessageId,

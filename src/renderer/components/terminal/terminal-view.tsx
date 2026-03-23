@@ -29,8 +29,8 @@ export function TerminalView({ projectId, shellId, cwd, initialCommand, onOpenUr
   }, [projectId])
 
   useEffect(() => {
-    const handler = (e: Event) => {
-      const panelId = (e as CustomEvent<{ panelId: string }>).detail.panelId
+    const handler = (e: Event) => { // eslint-disable-line no-undef
+      const panelId = (e as CustomEvent<{ panelId: string }>).detail.panelId // eslint-disable-line no-undef
       if (panelId !== projectId) return
       document
         .querySelector<HTMLElement>(`[data-panel-id="${projectId}"] .xterm-helper-textarea`)

@@ -493,7 +493,7 @@ export function useClaude(panelId: string, cwd: string) {
                 usage: m.usage as { totalTokens: number; toolUses: number; durationMs: number } | undefined,
               })
               if (document.hidden) {
-                new Notification('Task finished', { body: summary })
+                new Notification('Task finished', { body: summary }) // eslint-disable-line no-undef
               }
             }
             break

@@ -246,7 +246,7 @@ export function useProjects() {
 
       await storeUpdateProject(projectId, { threads: remaining, activeThreadId })
     },
-    [getProject, storeUpdateProject, storeRemoveProject]
+    [getProject, storeUpdateProject]
   )
 
   const switchThread = useCallback(

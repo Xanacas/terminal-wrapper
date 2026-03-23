@@ -2,7 +2,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 // Mock modules that depend on browser globals
 vi.mock('~/lib/ipc', () => ({
-  api: {},
+  api: {
+    onClaudeMessage: vi.fn(),
+    onClaudePermissionRequest: vi.fn(),
+    onClaudeSessionEnded: vi.fn(),
+    onClaudeError: vi.fn(),
+  },
 }))
 
 vi.mock('react', () => ({
@@ -75,7 +80,7 @@ describe('mapHistoryToMessages', () => {
     expect(result[0].content).toBe('First part\nSecond part')
   })
 
-  it('filters non-text blocks from array content', () => {
+  it('splits text around tool_use blocks', () => {
     const history = [
       {
         type: 'assistant',
@@ -93,10 +98,13 @@ describe('mapHistoryToMessages', () => {
 
     const result = mapHistoryToMessages(history)
 
-    expect(result[0].content).toBe('Some text\nMore text')
+    expect(result).toHaveLength(3)
+    expect(result[0]).toMatchObject({ type: 'assistant', content: 'Some text' })
+    expect(result[1]).toMatchObject({ type: 'tool-use', toolName: 'Read', toolUseId: 'tool-1' })
+    expect(result[2]).toMatchObject({ type: 'assistant', content: 'More text' })
   })
 
-  it('handles message with no content', () => {
+  it('skips message with no content', () => {
     const history = [
       {
         type: 'user',
@@ -107,10 +115,10 @@ describe('mapHistoryToMessages', () => {
 
     const result = mapHistoryToMessages(history)
 
-    expect(result[0].content).toBe('')
+    expect(result).toHaveLength(0)
   })
 
-  it('handles message with no message field', () => {
+  it('skips result-type messages', () => {
     const history = [
       {
         type: 'result',
@@ -120,8 +128,7 @@ describe('mapHistoryToMessages', () => {
 
     const result = mapHistoryToMessages(history)
 
-    expect(result[0].content).toBe('')
-    expect(result[0].type).toBe('result')
+    expect(result).toHaveLength(0)
   })
 
   it('falls back to crypto.randomUUID when uuid is missing', () => {

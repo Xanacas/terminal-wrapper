@@ -8,11 +8,14 @@ vi.mock('electron', () => ({
   },
 }))
 
-// Mock the SDK for forkSession
-const mockForkSession = vi.fn()
-vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
-  forkSession: mockForkSession,
-}))
+// Mock the SDK — all exports needed by claude-session-manager
+const mockSDK = {
+  forkSession: vi.fn(),
+  query: vi.fn(() => (async function* () {})()),
+  listSessions: vi.fn().mockResolvedValue([]),
+  getSessionMessages: vi.fn().mockResolvedValue([]),
+}
+vi.mock('@anthropic-ai/claude-agent-sdk', () => mockSDK)
 
 // Mock the logger
 vi.mock('../logger', () => ({
@@ -41,10 +44,15 @@ import {
   forkSessionFromPanel,
   rewindFilesInSession,
   _testGetSession,
+  _testResetSDKCache,
+  _testSetSDK,
 } from './claude-session-manager'
 
 beforeEach(() => {
   destroyAll()
+  _testResetSDKCache()
+  // Inject mock SDK so source-file dynamic imports use it
+  _testSetSDK(mockSDK as never)
 })
 
 describe('getSessionState', () => {
@@ -194,7 +202,7 @@ describe('stopBackgroundTask', () => {
 
 describe('forkSessionFromPanel', () => {
   beforeEach(() => {
-    mockForkSession.mockReset()
+    mockSDK.forkSession.mockReset()
   })
 
   it('throws if session does not exist', async () => {
@@ -210,14 +218,14 @@ describe('forkSessionFromPanel', () => {
     await createSession('panel-1', { cwd: '/my/project' })
     resumeSession('panel-1', 'sdk-session-abc')
 
-    mockForkSession.mockResolvedValue({ sessionId: 'forked-session-123' })
+    mockSDK.forkSession.mockResolvedValue({ sessionId: 'forked-session-123' })
 
     await forkSessionFromPanel('panel-1', {
       upToMessageId: 'msg-uuid-5',
       title: 'My Fork',
     })
 
-    expect(mockForkSession).toHaveBeenCalledWith('sdk-session-abc', {
+    expect(mockSDK.forkSession).toHaveBeenCalledWith('sdk-session-abc', {
       dir: '/my/project',
       upToMessageId: 'msg-uuid-5',
       title: 'My Fork',
@@ -228,7 +236,7 @@ describe('forkSessionFromPanel', () => {
     await createSession('panel-1', { cwd: '/tmp' })
     resumeSession('panel-1', 'sdk-session-abc')
 
-    mockForkSession.mockResolvedValue({ sessionId: 'forked-session-456' })
+    mockSDK.forkSession.mockResolvedValue({ sessionId: 'forked-session-456' })
 
     const result = await forkSessionFromPanel('panel-1')
     expect(result).toEqual({ sessionId: 'forked-session-456' })

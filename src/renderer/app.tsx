@@ -46,7 +46,7 @@ export function App() {
   const closeAllOverlays = useUIStore((s) => s.closeAllOverlays)
   const focusedPanelId = useUIStore((s) => s.focusedPanelId)
   const setFocusedPanel = useUIStore((s) => s.setFocusedPanel)
-  const threadFocusOrder = useUIStore((s) => s.threadFocusOrder)
+
 
   const activeProject = useAppStore((s) => s.getActiveProject())
   const activeTab = useAppStore((s) => s.getActiveTab())
@@ -82,7 +82,7 @@ export function App() {
       const panel = collectLeafPanels(activeTab.panel)[idx]
       if (!panel) return
       setFocusedPanel(panel.id)
-      window.dispatchEvent(new CustomEvent('panel:focus-request', { detail: { panelId: panel.id } }))
+      window.dispatchEvent(new CustomEvent('panel:focus-request', { detail: { panelId: panel.id } })) // eslint-disable-line no-undef
     }
 
     const cycleThread = (offset: number) => {
@@ -149,7 +149,6 @@ export function App() {
     activeProject,
     activeTab,
     focusedPanelId,
-    threadFocusOrder,
     createProject,
     closeTab,
     addTab,

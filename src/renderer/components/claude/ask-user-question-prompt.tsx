@@ -38,7 +38,7 @@ function isHtmlContent(content: string) {
 
 /** Sandboxed HTML preview rendered in an iframe */
 function HtmlPreviewPane({ html }: { html: string }) {
-  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const iframeRef = useRef<HTMLIFrameElement>(null) // eslint-disable-line no-undef
   const [height, setHeight] = useState(100)
 
   useEffect(() => {
